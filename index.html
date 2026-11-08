@@ -51,7 +51,16 @@ h1{font-size:24px;margin:2px 0 6px;line-height:1.2}h2{font-size:17px;margin:16px
 </div>
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="fCam" accept="image/*" capture="environment" hidden><input type="file" id="fArch" accept="image/*,application/pdf" hidden>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
+// ===== Conexión de la prueba de concepto (fase P) =====
+// Con ?t=<enlace> el portal trabaja contra la base de datos real (modo prueba); sin enlace, en modo demostración.
+const CONEX={url:'https://qdciqoxselwmudlycprq.supabase.co',key:'sb_publishable_pUrNhusonmxflSItZlU0fQ_ohRpCrYW'};
+const TOKEN=new URLSearchParams(location.search).get('t')||(location.hash.match(/t=([^&]+)/)||[])[1]||null;
+const MODO=TOKEN?'prueba':'demo';
+const SB=(MODO==='prueba'&&window.supabase)?window.supabase.createClient(CONEX.url,CONEX.key,{auth:{persistSession:false}}):null;
+const uid=()=>(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+async function rpc(fn,args){if(!SB)throw new Error('Sin conexión a la base de datos');const {data,error}=await SB.rpc(fn,args);if(error)throw error;if(data&&data.error)throw new Error(data.error);return data;}
 // ===== Configuración (SIRIUS_PORTAL_CLIENTE v1.2, DEC-171) =====
 const CFG={tel:'022990000',telTxt:'02 299 0000',jornada:[['08:30','13:00'],['14:00','17:30']],pasoMin:30,diasHabiles:10,apartadoMin:10,cambioHorasHabiles:4,maxMB:10,
  busquedaSeg:25,busquedaLimiteHoras:2,
@@ -68,7 +77,7 @@ const TIPOS={
 const CAMPOS={veh_placa:'Placa',veh_vin:'VIN (chasis)',veh_anio:'Año',prop_identificacion:'Identificación del propietario',mat_caducidad:'Caducidad de la matrícula',lic_numero:'Número de licencia',lic_categoria:'Categoría de licencia',lic_vencimiento:'Vencimiento de la licencia',ext_factura_valor:'Valor de la factura del extra',rg_permiso_bomberos_vigencia:'Vigencia del permiso de bomberos',rg_extintores_recarga:'Fecha de recarga de extintores',rg_ruc:'RUC',em_serie:'Serie del equipo',em_modelo:'Modelo del equipo'};
 const ESPERADO={veh_placa:'GSE1120',prop_identificacion:'0923456781',rg_ruc:'1791234560001'};
 const INSP_FIJOS=['Marco Tapia','Cristian Vaca','Paola Vinueza'],RED=[['Daniel Herrera','Eurosurvey','AS-RED-0311',4.9],['Gabriela Suárez','Inspectora independiente','AS-RED-0487',4.8],['Jorge Mena','Insurval','AS-RED-0215',4.7]];
-const CLAVE='sirius-autoagendamiento-v3';
+const CLAVE=MODO==='prueba'?'sirius-portal-prueba-'+TOKEN:'sirius-autoagendamiento-v3';
 const nuevoEstado=t=>({tipo:t,sec:'estado',paso:'estado',etapa:'solicitud',cita:null,apartado:null,lugar:{dir:'',ref:'',quien:'',cel:'',lat:null,lng:null},docs:TIPOS[t].docs.map(d=>Object.assign({st:'pend'},d)),campos:{},camino:false,hist:[]});
 let S;try{S=JSON.parse(localStorage.getItem(CLAVE))}catch(e){}
 if(!S||!TIPOS[S.tipo])S=nuevoEstado('veh');
@@ -141,18 +150,38 @@ function apartar(){S.apartado={f:S.selF,h:S.selH,modo:S.selModo,hasta:Date.now()
 function soltar(){S.apartado=null;guardar();}
 function reloj(){clearInterval(tmr);if(S.paso!=='lugar'||!S.apartado||S.apartado.modo!=='fija')return;const tick=()=>{const r=S.apartado.hasta-Date.now();if(r<=0){clearInterval(tmr);S.apartado=null;S.selH=null;guardar();toast('El horario se liberó: elige de nuevo');ir('agenda','dia');return;}const e=$('#tt');if(e)e.textContent=Math.floor(r/60000)+':'+p2(Math.floor(r/1000)%60);};tick();tmr=setInterval(tick,1000);}
 function ubicar(){if(!navigator.geolocation){toast('Tu navegador no permite ubicación');return;}toast('Buscando tu ubicación…');navigator.geolocation.getCurrentPosition(p=>{S.lugar.lat=+p.coords.latitude.toFixed(5);S.lugar.lng=+p.coords.longitude.toFixed(5);guardar();pintar();toast('Ubicación marcada en el mapa (± '+Math.round(p.coords.accuracy)+' m)');},()=>toast('No pudimos obtener tu ubicación'),{enableHighAccuracy:true,timeout:12000});}
+// ===== Modo prueba: leer y escribir en la base de datos =====
+const TIPO_COMP={'Vehículo':'veh','Ubicación':'rg','Equipo móvil':'em'};
+function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_COMP[r.composicion]||'veh';if(S.tipo!==t){const docs=S.docs;S=Object.assign(nuevoEstado(t),{hist:S.hist});}
+ const T=TIPOS[S.tipo];T.caso=String(d.caso.numero);T.cliente=(d.caso.contacto&&d.caso.contacto.nombre)||d.caso.cliente||T.cliente;T.bien=r.descripcion||T.bien;
+ const v=d.visita;S.cita=null;
+ if(v&&v.inicio){const ini=new Date(v.inicio),f=iso(ini),h=p2(ini.getHours())+':'+p2(ini.getMinutes());S.cita={f,h,modo:v.origen==='Cliente · red'?'red':'fija'};
+  if(d.inspector)S.cita.insp={nombre:d.inspector.nombre,org:d.inspector.organizacion,cred:d.inspector.credencial};
+  if(v.direccion){S.lugar=Object.assign(S.lugar,{dir:v.direccion.direccion||'',ref:v.direccion.referencia||'',quien:v.direccion.quien||'',cel:v.direccion.cel||'',lat:v.direccion.lat||null,lng:v.direccion.lng||null});}}
+ const est=d.caso.estado;S.etapa=!v||v.estado==='Por agendar'?'solicitud':v.estado==='Buscando inspector'?'buscando':['En curso'].includes(est)?'realizada':['Pendiente calificación','Pendiente calificación de suscripción','Devuelto al inspector'].includes(est)?'revision':['Inspeccionado','Enviado a emisión','Emitida','No emitida'].includes(est)?'completada':'agendada';
+ if(S.etapa==='buscando'&&S.cita){S.cita.red=(d.busqueda&&d.busqueda.consultados)||2;S.cita.buscarHasta=d.busqueda?new Date(d.busqueda.vence).getTime():Date.now()+7200000;}
+ const pasos=(d.documentos||[]).map(x=>x.paso);S.docs.forEach(x=>{if(pasos.includes(x.id)&&x.st==='pend')x.st='rev';});guardar();}
+let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa;aplicar(d);
+ if(antes==='buscando'&&S.etapa==='agendada'){S.paso='ok';toast('¡Confirmado! '+(S.cita.insp?S.cita.insp.nombre:'Un inspector')+' hará tu inspección');}pintar();}
+ catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){$('#scr').innerHTML='<h1>Este enlace no es válido</h1><p class="mut">Venció o fue reemplazado. Pide uno nuevo a tu asesor.</p>';}}
+ clearTimeout(sondeo);if(S.etapa==='buscando')sondeo=setTimeout(()=>cargar(true),10000);}
+function evento(accion,detalle){if(MODO==='prueba')rpc('portal_evento',{p_token:TOKEN,p_accion:accion,p_detalle:detalle||null,p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:uid()}).catch(()=>{});}
 function confirmar(){const l=S.lugar,e={};if(l.dir.trim().length<8)e.dir='Escribe la dirección completa';if(l.quien.trim().length<3)e.quien='Indica quién recibe al inspector';if(!/^09\d{8}$/.test(l.cel.replace(/\s/g,'')))e.cel='Celular de 10 dígitos que empiece con 09';
  if(Object.keys(e).length){S.errs=e;pintar();toast('Revisa los datos marcados');return;}
  const ap=S.apartado;if(ap.modo==='fija'&&Date.now()>ap.hasta){S.apartado=null;guardar();toast('El horario se liberó: elige de nuevo');ir('agenda','dia');return;}
+ if(MODO==='prueba'){const ini=aFecha(ap.f,ap.h);toast(ap.modo==='fija'?'Confirmando tu cita…':'Buscando un inspector…');
+  rpc('portal_agendar',{p_token:TOKEN,p_inicio:ini.toISOString(),p_minutos:TP().dur,p_modo:ap.modo,p_direccion:{direccion:l.dir,referencia:l.ref,quien:l.quien,cel:l.cel,lat:l.lat,lng:l.lng}})
+   .then(d=>{S.apartado=null;S.errs=null;S.cambiando=false;clearInterval(tmr);aplicar(d);S.paso=S.etapa==='buscando'?'buscando':'ok';S.sec='agenda';pintar();cargar(true);})
+   .catch(e=>toast('No se pudo agendar: '+(e.message||e)));return;}
  const antes=S.cita?citaTxt():null;S.apartado=null;S.errs=null;S.cambiando=false;clearInterval(tmr);
  if(ap.modo==='fija'){const n=INSP_FIJOS[hash(ap.f+ap.h)%INSP_FIJOS.length];S.cita={f:ap.f,h:ap.h,modo:'fija',insp:{nombre:n,org:'Inspector de Aseguradora del Sur',cred:'AS-INS-0'+(140+hash(n)%40)}};S.etapa='agendada';S.hist.push({t:Date.now(),a:antes?'Cambió la cita':'Agendó la inspección',d:citaTxt()});ir('agenda','ok');}
  else{S.cita={f:ap.f,h:ap.h,modo:'red',red:3+hash(ap.f+ap.h)%5,buscarHasta:Date.now()+CFG.busquedaSeg*1000};S.etapa='buscando';S.hist.push({t:Date.now(),a:'Pidió un horario a la red de inspectores',d:citaTxt()});ir('agenda','buscando');}
  vigilar();}
 // Simulación de la red (en SIRIUS: la cita se ofrece a los inspectores de la red de la zona y el primero que la toma queda asignado).
-function vigilar(){clearTimeout(busc);if(S.etapa!=='buscando'||!S.cita)return;const r=S.cita.buscarHasta-Date.now();busc=setTimeout(()=>aceptaRed(),Math.max(0,r));}
+function vigilar(){clearTimeout(busc);if(MODO==='prueba')return;if(S.etapa!=='buscando'||!S.cita)return;const r=S.cita.buscarHasta-Date.now();busc=setTimeout(()=>aceptaRed(),Math.max(0,r));}
 function aceptaRed(){if(S.etapa!=='buscando')return;const r=RED[hash(S.cita.f+S.cita.h)%RED.length];S.cita.insp={nombre:r[0],org:r[1],cred:r[2],nota:r[3]};S.cita.modo='red-confirmada';S.etapa='agendada';S.hist.push({t:Date.now(),a:'Un inspector de la red aceptó la cita',d:r[0]});guardar();if(S.paso==='buscando'||S.paso==='estado'||S.paso==='cita')S.paso='ok';pintar();toast('¡Confirmado! '+r[0]+' hará tu inspección');}
 function nadieRed(){if(S.etapa!=='buscando')return;S.sinred=citaTxt();S.cita=null;S.etapa='solicitud';S.hist.push({t:Date.now(),a:'Ningún inspector de la red tomó la cita',d:S.sinred});guardar();ir('agenda','sinred');}
-function cancelar(){if(!confirm('¿Cancelar la cita? Podrás agendar otra cuando quieras.'))return;S.hist.push({t:Date.now(),a:'Canceló la cita',d:citaTxt()});S.cita=null;S.etapa='solicitud';S.camino=false;clearTimeout(busc);toast('Cita cancelada');ir('estado','estado');}
+function cancelar(){if(!confirm('¿Cancelar la cita? Podrás agendar otra cuando quieras.'))return;if(MODO==='prueba'){rpc('portal_cancelar',{p_token:TOKEN,p_motivo:'Cancelada desde el portal'}).then(d=>{aplicar(d);S.camino=false;toast('Cita cancelada');ir('estado','estado');}).catch(e=>toast(e.message||String(e)));return;}S.hist.push({t:Date.now(),a:'Canceló la cita',d:citaTxt()});S.cita=null;S.etapa='solicitud';S.camino=false;clearTimeout(busc);toast('Cita cancelada');ir('estado','estado');}
 function ics(){if(!S.cita)return;const a=aFecha(S.cita.f,S.cita.h),b=new Date(a.getTime()+TP().dur*60000),f=d=>d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00';
  const txt=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Aseguradora del Sur//Inspeccion//ES','BEGIN:VEVENT','UID:'+TP().caso+'-'+S.cita.f+'@asur.ec','DTSTAMP:'+f(new Date()),'DTSTART:'+f(a),'DTEND:'+f(b),'SUMMARY:Inspección · '+TP().bien,'LOCATION:'+(S.lugar.dir||'').replace(/[,;]/g,' '),'DESCRIPTION:Aseguradora del Sur · caso '+TP().caso+(S.cita.insp?' · inspector '+S.cita.insp.nombre:''),'BEGIN:VALARM','TRIGGER:-PT2H','ACTION:DISPLAY','DESCRIPTION:Inspección en 2 horas','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
  const u=URL.createObjectURL(new Blob([txt],{type:'text/calendar'})),l=document.createElement('a');l.href=u;l.download='inspeccion-'+TP().caso+'.ics';document.body.appendChild(l);l.click();l.remove();}
@@ -201,12 +230,16 @@ function camaraSistema(i){toast('Usaremos la cámara del celular');const inp=$('
 function revisarFoto(i,c,val){const d=S.docs[i],url=c.toDataURL('image/jpeg',.85);const div=document.createElement('div');div.className='cam rev';
  div.innerHTML='<div class="cTop"><span></span><b>'+esc(d.n)+'</b><span></span></div><div class="revImg"><img src="'+url+'" alt="Foto tomada"></div><div class="revAct"><p>¿Se lee bien todo el documento?</p><button class="btn" id="rok">Usar esta foto</button><button class="btn btn2" id="rno" style="background:transparent;color:#fff;border-color:#fff8">Repetir</button></div>';
  document.body.appendChild(div);div.querySelector('#rno').onclick=()=>{div.remove();camara(i);};
- div.querySelector('#rok').onclick=()=>{div.remove();const mini=(()=>{const m=document.createElement('canvas'),k=160/Math.max(c.width,c.height);m.width=Math.round(c.width*k);m.height=Math.round(c.height*k);m.getContext('2d').drawImage(c,0,0,m.width,m.height);return m.toDataURL('image/jpeg',.7);})();
+ div.querySelector('#rok').onclick=()=>{div.remove();if(MODO==='prueba')subirDoc(i,c,val);const mini=(()=>{const m=document.createElement('canvas'),k=160/Math.max(c.width,c.height);m.width=Math.round(c.width*k);m.height=Math.round(c.height*k);m.getContext('2d').drawImage(c,0,0,m.width,m.height);return m.toDataURL('image/jpeg',.7);})();
   Object.assign(d,{st:'rev',mini,pdf:false,archivo:'',motivo:'',validacion:val,hora:new Date().toLocaleString('es-EC')});S.hist.push({t:Date.now(),a:'Fotografió un documento',d:d.n});guardar();pintar();toast('Documento enviado: lo revisaremos pronto');
   if(d.campos.length)extraer(i,c);};}
 // ===== Lectura de datos del documento → campos del formulario (en SIRIUS lo confirma el motor de extracción) =====
 let ocrW=null;async function workerOcr(){if(!window.Tesseract)await new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';sc.onload=ok;sc.onerror=ko;document.head.appendChild(sc);});if(!ocrW)ocrW=await Tesseract.createWorker('spa');return ocrW;}
 function prep(c){const k=Math.max(1,1400/c.width),o=document.createElement('canvas');o.width=Math.round(c.width*k);o.height=Math.round(c.height*k);const x=o.getContext('2d');x.drawImage(c,0,0,o.width,o.height);const im=x.getImageData(0,0,o.width,o.height),D=im.data;let s=0;for(let i=0;i<D.length;i+=4)s+=.299*D[i]+.587*D[i+1]+.114*D[i+2];const th=s/(D.length/4)*.92;for(let i=0;i<D.length;i+=4){const v=(.299*D[i]+.587*D[i+1]+.114*D[i+2])>th?255:0;D[i]=D[i+1]=D[i+2]=v;}x.putImageData(im,0,0);return o;}
+async function subirDoc(i,c,val){const d=S.docs[i],idc=uid(),ruta='portal/'+TOKEN+'/'+d.id+'-'+Date.now()+'.jpg';
+ try{const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.85));const {error}=await SB.storage.from('evidencias').upload(ruta,blob,{contentType:'image/jpeg',upsert:false});if(error)throw error;
+  await rpc('portal_evidencia',{p_token:TOKEN,p_paso:d.id,p_ruta:ruta,p_validacion:val,p_lecturas:{},p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:idc});toast('Documento recibido en SIRIUS');}
+ catch(e){toast('No se pudo subir el documento: '+(e.message||e));d.st='pend';guardar();pintar();}}
 async function extraer(i,c){const d=S.docs[i];try{const w=await workerOcr();const r=await w.recognize(prep(c));const t=(r.data.text||'').toUpperCase().replace(/[|]/g,' '),conf=Math.round(r.data.confidence||0),T=t.replace(/\s+/g,' ');
  const fechas=(T.match(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.](19|20)\d{2}\b/g)||[]);const v={};
  if(d.id==='mat_f'){const p=T.match(/\b([A-Z]{3})[- ]?(\d{3,4})\b/);if(p)v.veh_placa=p[1]+p[2];const vin=T.replace(/[^A-Z0-9 ]/g,'').match(/\b[A-HJ-NPR-Z0-9]{17}\b/);if(vin)v.veh_vin=vin[0];const an=T.match(/\b(19[89]\d|20[0-3]\d)\b/);if(an)v.veh_anio=an[0];}
@@ -222,7 +255,7 @@ async function extraer(i,c){const d=S.docs[i];try{const w=await workerOcr();cons
 function verSirius(){const ks=[...new Set(S.docs.flatMap(d=>d.campos))];const filas=ks.map(k=>{const c=S.campos[k],e=ESPERADO[k];const cmp=c&&c.valor&&e?(c.valor.replace(/\D|-/g,'')===e.replace(/\D|-/g,'')||c.valor===e?'<span class="chip c-a">Coincide</span>':'<span class="chip c-x">No coincide</span>'):'';return '<tr><td>'+CAMPOS[k]+'<br><small class="mut">'+k+'</small></td><td><b>'+esc(c&&c.valor||'—')+'</b>'+(c&&c.conf?'<br><small class="mut">'+c.conf+' %</small>':'')+' '+cmp+'</td><td><small>'+esc(c?c.estado:'Pendiente de la foto')+'</small></td></tr>';}).join('');
  const s=document.createElement('div');s.className='sheet';s.innerHTML='<div style="max-height:85vh;overflow:auto"><b style="font-size:17px">Lo que recibe SIRIUS</b><p class="mut sm" style="margin:4px 0 8px">Campos del formulario llenados con los documentos (el cliente no ve esta pantalla).</p><table class="tbl">'+filas+'</table><button class="btn" id="sx">Cerrar</button></div>';document.body.appendChild(s);s.onclick=e=>{if(e.target===s||e.target.id==='sx')s.remove();};}
 // ===== Opciones de prueba (simulan lo que hace la aseguradora) =====
-function prueba(){return '<details class="prueba"><summary>Opciones de prueba (simulan acciones de la aseguradora)</summary><div class="r"><span class="sm mut" style="width:100%">Tipo de inspección:</span>'+Object.entries(TIPOS).map(([k,t])=>'<button style="'+(S.tipo===k?'border-color:var(--p);color:var(--p)':'')+'" onclick="cambiarTipo(\''+k+'\')">'+t.nombre+'</button>').join('')+'<span style="width:100%"></span>'+
+function prueba(){if(MODO==='prueba')return '<details class="prueba"><summary>Modo prueba · conectado a SIRIUS</summary><div class="r"><button onclick="cargar()">Actualizar desde SIRIUS</button><button onclick="if(confirm(\'¿Borrar lo guardado en este celular? Tu caso en SIRIUS no cambia.\')){localStorage.removeItem(CLAVE);location.reload()}">Borrar datos de este celular</button></div><p class="mut sm">Caso '+TP().caso+' · enlace '+TOKEN.slice(0,14)+'…</p></details>';return '<details class="prueba"><summary>Opciones de prueba (simulan acciones de la aseguradora)</summary><div class="r"><span class="sm mut" style="width:100%">Tipo de inspección:</span>'+Object.entries(TIPOS).map(([k,t])=>'<button style="'+(S.tipo===k?'border-color:var(--p);color:var(--p)':'')+'" onclick="cambiarTipo(\''+k+'\')">'+t.nombre+'</button>').join('')+'<span style="width:100%"></span>'+
  (S.etapa==='buscando'?'<button onclick="aceptaRed()">Un inspector de la red acepta</button><button onclick="nadieRed()">Nadie de la red acepta</button>':'')+
  (S.etapa==='agendada'?'<button onclick="S.camino=!S.camino;guardar();pintar()">'+(S.camino?'Quitar':'Simular')+' «va en camino»</button><button onclick="avanzar(\'realizada\')">Marcar inspección realizada</button>':'')+
  (S.etapa==='realizada'?'<button onclick="avanzar(\'revision\')">Pasar a revisión</button>':'')+(S.etapa==='revision'?'<button onclick="avanzar(\'completada\')">Completar la revisión</button>':'')+
@@ -237,4 +270,5 @@ document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{const n=b.dat
 vigilar();
 if(S.apartado&&Date.now()>S.apartado.hasta)S.apartado=null;
 pintar();
+if(MODO==='prueba'){cargar();if(!sessionStorage.getItem('abierto-'+TOKEN)){sessionStorage.setItem('abierto-'+TOKEN,'1');evento('Abrió el enlace',/iPhone/.test(navigator.userAgent)?'iPhone':/Android/.test(navigator.userAgent)?'Android':'Navegador');}}
 </script></body></html>
