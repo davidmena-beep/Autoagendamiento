@@ -165,7 +165,7 @@ function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_
  const pasos=(d.documentos||[]).map(x=>x.paso);S.docs.forEach(x=>{if(pasos.includes(x.id)&&x.st==='pend')x.st='rev';});guardar();}
 let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa;aplicar(d);
  if(antes==='buscando'&&S.etapa==='agendada'){S.paso='ok';toast('¡Confirmado! '+(S.cita.insp?S.cita.insp.nombre:'Un inspector')+' hará tu inspección');}pintar();}
- catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){$('#scr').innerHTML='<h1>Este enlace no es válido</h1><p class="mut">Venció o fue reemplazado. Pide uno nuevo a tu asesor.</p>';}}
+ catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){clearTimeout(sondeo);$('#scr').innerHTML='<h1>Este enlace ya no es válido</h1><p class="mut">La aseguradora te envió un enlace nuevo, o este venció. Abre el último mensaje que recibiste; si no lo tienes, llámanos al '+CFG.telTxt+'.</p>';return;}}
  clearTimeout(sondeo);if(S.etapa==='buscando')sondeo=setTimeout(()=>cargar(true),10000);}
 function evento(accion,detalle){if(MODO==='prueba')rpc('portal_evento',{p_token:TOKEN,p_accion:accion,p_detalle:detalle||null,p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:uid()}).catch(()=>{});}
 function confirmar(){const l=S.lugar,e={};if(l.dir.trim().length<8)e.dir='Escribe la dirección completa';if(l.quien.trim().length<3)e.quien='Indica quién recibe al inspector';if(!/^09\d{8}$/.test(l.cel.replace(/\s/g,'')))e.cel='Celular de 10 dígitos que empiece con 09';
