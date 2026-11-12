@@ -113,7 +113,7 @@ const V={
 estado(){const e=PASOS[S.etapa],hoyVisita=S.cita&&S.cita.f===iso(new Date())&&S.etapa==='agendada';
  const accion=S.etapa==='solicitud'?'<div class="card hi"><b>Agenda tu inspección</b><p class="mut" style="margin:4px 0 0">Elige el día y la hora en que un inspector visite '+TP().bienCorto+'.</p><button class="btn" onclick="ir(\'agenda\',\'dia\')">Elegir fecha y hora</button></div>'
  :S.etapa==='buscando'?cardBuscando()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button>'
- :S.etapa==='agendada'?((hoyVisita||S.camino)?'<div class="card hi"><b>Tu inspector va en camino</b>'+cardInspector()+'<p class="mut" style="margin:6px 0 0">Llega aprox. '+llegada()+'</p><button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver la cita</button></div>':'<div class="card hi"><b>Inspección agendada</b><p style="margin:4px 0 6px">'+citaTxt()+'<br><span class="mut">'+esc(S.lugar.dir)+'</span></p>'+cardInspector()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button></div>')
+ :S.etapa==='agendada'?((MODO==='prueba'?S.cxCamino:(hoyVisita||S.camino))?'<div class="card hi"><b>Tu inspector va en camino</b>'+cardInspector()+'<p class="mut" style="margin:6px 0 0">Llega aprox. '+llegada()+'</p><button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver la cita</button></div>':'<div class="card hi"><b>Inspección agendada</b><p style="margin:4px 0 6px">'+citaTxt()+'<br><span class="mut">'+esc(S.lugar.dir)+'</span></p>'+cardInspector()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button></div>')
  :S.etapa==='completada'?'<div class="card hi"><b>Revisión completada</b><p class="mut" style="margin:4px 0 0">Tu asesor te contactará con el siguiente paso.</p></div>':'';
  const T=[['Solicitud recibida','Tu solicitud está registrada'],[S.etapa==='buscando'?'Buscando inspector':'Inspección agendada',S.cita?citaTxt():'Pendiente: elige una fecha'],['Inspección realizada','El inspector registra fotos y datos'],['En revisión','La aseguradora revisa el informe'],['Revisión completada','Tu asesor te contactará']];
  return '<h1>Hola, '+esc(TP().cliente.split(' ')[0])+'</h1><p class="mut">Tu inspección de '+esc(TP().nombre)+' · '+esc(TP().bien)+'</p>'+accion+'<ul class="tl">'+T.map((t,i)=>'<li><span class="dot '+(i<e||(i===e&&i===4)?'ok':i===e?'cur':'')+'">'+(i<e||(i===e&&i===4)?'✓':i+1)+'</span><div><b>'+t[0]+'</b><small>'+esc(t[1])+'</small></div></li>').join('')+'</ul>'+
@@ -156,17 +156,20 @@ function ubicar(){if(!navigator.geolocation){toast('Tu navegador no permite ubic
 const TIPO_COMP={'Vehículo':'veh','Ubicación':'rg','Equipo móvil':'em'};
 function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_COMP[r.composicion]||'veh';if(S.tipo!==t){const docs=S.docs;S=Object.assign(nuevoEstado(t),{hist:S.hist});}
  const T=TIPOS[S.tipo];T.caso=String(d.caso.numero);T.cliente=(d.caso.contacto&&d.caso.contacto.nombre)||d.caso.cliente||T.cliente;T.bien=r.descripcion||T.bien;
- const v=d.visita;S.cita=null;
+ const v=d.visita;S.cita=null;S.cxCamino=!!(v&&v.enCamino);S.linea=d.linea||[];
  if(v&&v.inicio){const ini=new Date(v.inicio),f=iso(ini),h=p2(ini.getHours())+':'+p2(ini.getMinutes());S.cita={f,h,modo:v.origen==='Cliente · red'?'red':'fija',agendadoEn:v.agendadoEn?new Date(v.agendadoEn).getTime():null,modificable:v.modificable};
   if(d.inspector)S.cita.insp={nombre:d.inspector.nombre,org:d.inspector.organizacion,cred:d.inspector.credencial};
   if(v.direccion){S.lugar=Object.assign(S.lugar,{dir:v.direccion.direccion||'',ref:v.direccion.referencia||'',quien:v.direccion.quien||'',cel:v.direccion.cel||'',lat:v.direccion.lat||null,lng:v.direccion.lng||null});}}
  const est=d.caso.estado;S.etapa=!v||v.estado==='Por agendar'?'solicitud':v.estado==='Buscando inspector'?'buscando':['En curso'].includes(est)?'realizada':['Pendiente calificación','Pendiente calificación de suscripción','Devuelto al inspector'].includes(est)?'revision':['Inspeccionado','Enviado a emisión','Emitida','No emitida'].includes(est)?'completada':'agendada';
  if(S.etapa==='buscando'&&S.cita){S.cita.red=(d.busqueda&&d.busqueda.consultados)||2;S.cita.buscarHasta=d.busqueda?new Date(d.busqueda.vence).getTime():Date.now()+7200000;}
  const pasos=(d.documentos||[]).map(x=>x.paso);S.docs.forEach(x=>{if(pasos.includes(x.id)&&x.st==='pend')x.st='rev';});guardar();}
-let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa;aplicar(d);
+let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa,antesCam=!!S.cxCamino;aplicar(d);
+ if(!antesCam&&S.cxCamino&&silencioso)toast('Tu inspector va en camino');
  if(antes==='buscando'&&S.etapa==='agendada'){S.paso='ok';toast('¡Confirmado! '+(S.cita.insp?S.cita.insp.nombre:'Un inspector')+' hará tu inspección');}pintar();}
  catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){clearTimeout(sondeo);$('#scr').innerHTML='<h1>Este enlace ya no es válido</h1><p class="mut">La aseguradora te envió un enlace nuevo, o este venció. Abre el último mensaje que recibiste; si no lo tienes, llámanos al '+CFG.telTxt+'.</p>';return;}}
- clearTimeout(sondeo);if(S.etapa==='buscando')sondeo=setTimeout(()=>cargar(true),10000);}
+ // Observación 10: el portal se actualiza solo mientras el caso avanza (agenda desde la aseguradora, «va en camino», realizada, revisión).
+ clearTimeout(sondeo);const cada=S.etapa==='buscando'?10000:['solicitud','agendada','realizada','revision'].includes(S.etapa)?20000:0;if(cada)sondeo=setTimeout(()=>cargar(true),cada);}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&MODO==='prueba')cargar(true);});
 function evento(accion,detalle){if(MODO==='prueba')rpc('portal_evento',{p_token:TOKEN,p_accion:accion,p_detalle:detalle||null,p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:uid()}).catch(()=>{});}
 function confirmar(){const l=S.lugar,e={};if(l.dir.trim().length<8)e.dir='Escribe la dirección completa';if(l.quien.trim().length<3)e.quien='Indica quién recibe al inspector';if(!/^09\d{8}$/.test(l.cel.replace(/\s/g,'')))e.cel='Celular de 10 dígitos que empiece con 09';
  if(Object.keys(e).length){S.errs=e;pintar();toast('Revisa los datos marcados');return;}
