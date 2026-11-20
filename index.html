@@ -214,29 +214,35 @@ function nomCiudad(x){const a=x.address||{};return a.city||a.town||a.municipalit
 async function reverso(pt){try{const x=await nomGet(NOM+'reverse?format=jsonv2&addressdetails=1&accept-language=es&lat='+pt[0]+'&lon='+pt[1]);return x&&!x.error?{texto:nomTexto(x),ciudad:nomCiudad(x)}:null;}catch(e){return null;}}
 function usarGps(){if(!navigator.geolocation){gpsFalla();return;}const b=$('#bGps');if(b){b.disabled=true;b.textContent='Buscando tu ubicación…';}
  navigator.geolocation.getCurrentPosition(async p=>{const pt=[+p.coords.latitude.toFixed(6),+p.coords.longitude.toFixed(6)];
-  S.lugar=Object.assign({},S.lugar,{punto:pt,origen:'GPS',ciudad:'',ciudadNombre:'',zona:null,estadoZona:'',texto:''});S.lugarCalc=true;pintar();
+  S.ciudadSel=null;S.lugar=Object.assign({},S.lugar,{punto:pt,origen:'GPS',ciudad:'',ciudadNombre:'',zona:null,estadoZona:'',texto:''});S.lugarCalc=true;pintar();
   const g=MODO==='prueba'?await reverso(pt):null;if(g){S.lugar.direccion=g.texto;S.lugar.ciudadNombre=g.ciudad;}
   await calcLugar();pintar();toast('Ubicación marcada en el mapa (± '+Math.round(p.coords.accuracy)+' m)');},
   ()=>gpsFalla(),{enableHighAccuracy:true,timeout:12000,maximumAge:60000});}
 function gpsFalla(){const b=$('#bGps');if(b){b.disabled=false;b.textContent='📍 Usar mi ubicación';}toast('No pudimos usar tu ubicación: escribe la dirección');const i=$('#bus');if(i)i.focus();}
-function centroCaso(){const s=ctx().solicitud;if(s&&s.punto)return s.punto;return {'1701':[-0.1807,-78.4678],'0901':[-2.1894,-79.8891],'0101':[-2.9001,-79.0059],'1801':[-1.2491,-78.6168]}[ctx().ciudadCaso||'1701']||[-0.1807,-78.4678];}
-function buscador(){return '<div class="f"><label for="bus">Buscar la dirección</label><input id="bus" type="search" autocomplete="off" placeholder="Calle, número, barrio o lugar conocido" value="'+esc(S.busq||'')+'" oninput="buscar(this.value)"></div><div id="sug" class="sug" aria-live="polite"></div>';}
+function centroCaso(){if(S.ciudadSel&&S.ciudadSel.punto)return S.ciudadSel.punto;const s=ctx().solicitud;if(s&&s.punto)return s.punto;return {'1701':[-0.1807,-78.4678],'0901':[-2.1894,-79.8891],'0101':[-2.9001,-79.0059],'1801':[-1.2491,-78.6168]}[ctx().ciudadCaso||'1701']||[-0.1807,-78.4678];}
+function buscador(){const cs=S.ciudadSel;return (cs?'<div class="aviso" style="flex-direction:row;align-items:center;justify-content:space-between;gap:8px"><span>Buscando en <b style="color:var(--ink)">'+esc(cs.nombre)+'</b>'+(cs.provincia?' · provincia de '+esc(cs.provincia):'')+'</span><button type="button" class="btn3" style="width:auto;min-height:44px;margin:0;padding:0 8px" onclick="quitarCiudad()">Cambiar ciudad</button></div>':'')+'<div class="f"><label for="bus">'+(cs?'Calle, número o barrio en '+esc(cs.nombre):'Buscar la ciudad o la dirección')+'</label><input id="bus" type="search" autocomplete="off" placeholder="'+(S.ciudadSel?'Calle principal y transversal':'Ciudad, calle, barrio o lugar conocido')+'" value="'+esc(S.busq||'')+'" oninput="buscar(this.value)"></div><div id="sug" class="sug" aria-live="polite"></div>';}
 let busT=null,busN=0;
-function buscar(t){S.busq=t;clearTimeout(busT);const s=$('#sug');if(t.trim().length<3){S.sugs=[];if(s)s.innerHTML='';return;}if(s)s.innerHTML='<p class="mut sm">Buscando…</p>';
- busT=setTimeout(async()=>{const n=++busN;let out=[];
-  if(MODO==='prueba'){try{const c=centroCaso();const a=await nomGet(NOM+'search?format=jsonv2&addressdetails=1&limit=6&countrycodes=ec&accept-language=es&bounded=0&viewbox='+[c[1]-.35,c[0]+.35,c[1]+.35,c[0]-.35].join(',')+'&q='+encodeURIComponent(t+', Ecuador'));
+function buscar(t){S.busq=t;clearTimeout(busT);const s=$('#sug');if(t.trim().length<3){S.sugs=[];S.ciudades=[];if(s)s.innerHTML='';return;}if(s)s.innerHTML='<p class="mut sm">Buscando…</p>';
+ busT=setTimeout(async()=>{const n=++busN,cs=S.ciudadSel;let out=[],ciu=[];
+  const pc=cs?Promise.resolve([]):api.ciudades(t).catch(()=>[]);
+  if(MODO==='prueba'){try{const c=centroCaso();const q=cs?t+', '+cs.nombre+', Ecuador':t+', Ecuador';
+   const a=await nomGet(NOM+'search?format=jsonv2&addressdetails=1&limit=6&countrycodes=ec&accept-language=es'+(c?'&bounded=0&viewbox='+[c[1]-(cs?.12:.35),c[0]+(cs?.12:.35),c[1]+(cs?.12:.35),c[0]-(cs?.12:.35)].join(','):'')+'&q='+encodeURIComponent(q));
    out=(a||[]).map(x=>({texto:nomTexto(x),ciudad:nomCiudad(x),punto:[+(+x.lat).toFixed(6),+(+x.lon).toFixed(6)]})).filter(x=>isFinite(x.punto[0])&&isFinite(x.punto[1]));}catch(e){}}
   else out=demoBuscar(t);
-  if(n!==busN)return;S.sugs=out;pintarSug();},700);}
-function pintarSug(){const s=$('#sug');if(!s)return;const L=S.sugs||[],t=(S.busq||'').trim();
- s.innerHTML=L.map((x,i)=>'<button class="sugI" onclick="elegirSug('+i+')"><b>'+esc(x.texto)+'</b><small>'+esc(x.ciudad||'')+'</small></button>').join('')+(t.length>=3?'<button class="sugI" onclick="talCual()"><b>Usar «'+esc(t)+'» tal como la escribí</b><small>Un coordinador confirmará la zona</small></button>':'');}
-function elegirSug(i){const x=(S.sugs||[])[i];if(!x)return;S.lugar=Object.assign({},S.lugar,{direccion:x.texto,punto:x.punto,ciudad:'',ciudadNombre:x.ciudad,origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
-function talCual(){const t=(S.busq||'').trim();S.lugar=Object.assign({},S.lugar,{direccion:t,punto:null,ciudad:'',ciudadNombre:'',origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
+  ciu=await pc;
+  if(n!==busN)return;S.sugs=out;S.ciudades=ciu||[];pintarSug();},700);}
+function elegirCiudad(i){const c=(S.ciudades||[])[i];if(!c)return;S.ciudadSel={cod:c.cod,nombre:c.nombre,provincia:c.provincia,punto:c.punto||null};
+ S.lugar=Object.assign({},S.lugar,{direccion:'',punto:null,ciudad:c.cod,ciudadNombre:c.nombre,origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.ciudades=[];S.busq='';pintar();calcLugar();setTimeout(()=>{const b=$('#bus');if(b)b.focus();},50);}
+function quitarCiudad(){S.ciudadSel=null;S.sugs=[];S.ciudades=[];S.busq='';pintar();setTimeout(()=>{const b=$('#bus');if(b)b.focus();},50);}
+function pintarSug(){const s=$('#sug');if(!s)return;const L=S.sugs||[],C=S.ciudades||[],t=(S.busq||'').trim();
+ s.innerHTML=C.map((c,i)=>'<button class="sugI" onclick="elegirCiudad('+i+')" style="border-color:var(--p)"><b>'+esc(c.nombre)+' · ciudad</b><small>Provincia de '+esc(c.provincia||'')+'</small></button>').join('')+L.map((x,i)=>'<button class="sugI" onclick="elegirSug('+i+')"><b>'+esc(x.texto)+'</b><small>'+esc(x.ciudad||'')+'</small></button>').join('')+(t.length>=3?'<button class="sugI" onclick="talCual()"><b>Usar «'+esc(t)+'» tal como la escribí</b><small>Un coordinador confirmará la zona</small></button>':'');}
+function elegirSug(i){const x=(S.sugs||[])[i];if(!x)return;S.lugar=Object.assign({},S.lugar,{direccion:x.texto,punto:x.punto,ciudad:'',ciudadNombre:x.ciudad||(S.ciudadSel?S.ciudadSel.nombre:''),origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
+function talCual(){const t=(S.busq||'').trim();S.lugar=Object.assign({},S.lugar,{direccion:t,punto:null,ciudad:S.ciudadSel?S.ciudadSel.cod:'',ciudadNombre:S.ciudadSel?S.ciudadSel.nombre:'',origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
 // Mapa pequeño (Leaflet): OpenStreetMap y, si sus teselas fallan, Esri. El punto se arrastra; sin punto, se toca el mapa para marcarlo.
 let MAPA=null,PIN=null;
 function montarMapa(){if(MAPA){try{MAPA.remove();}catch(e){}MAPA=null;PIN=null;}const el=$('#mapa');if(!el||!window.L)return;
  const fijo=ctx().fijo,sol=ctx().solicitud||{},pt=(fijo&&S.rgResp!=='no'?sol.punto:S.lugar.punto)||centroCaso();
- MAPA=L.map(el,{zoomControl:true}).setView(pt,(fijo?sol.punto:S.lugar.punto)?16:12);
+ MAPA=L.map(el,{zoomControl:true}).setView(pt,(fijo?sol.punto:S.lugar.punto)?16:(S.ciudadSel?13:12));
  const base=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(MAPA);let fallo=0;
  base.on('tileerror',()=>{if(++fallo===4){MAPA.removeLayer(base);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Mapa base © Esri'}).addTo(MAPA);}});
  if(!fijo)MAPA.on('click',e=>{if(S.lugar.punto)return;S.lugar=Object.assign({},S.lugar,{punto:[+e.latlng.lat.toFixed(6),+e.latlng.lng.toFixed(6)],origen:'Mapa'});calcLugar();});
@@ -258,6 +264,7 @@ const api={
  lugar:l=>MODO==='prueba'?rpc('portal_lugar',{p_token:TOKEN,p_lugar:lugarEnvio(l)}).then(d=>d.lugar):Promise.resolve(demoLugar(l)),
  horarios:l=>MODO==='prueba'?rpc('portal_horarios',{p_token:TOKEN,p_lugar:lugarEnvio(l)}):Promise.resolve(demoHorarios(l)),
  agendar:(s,l,c)=>MODO==='prueba'?rpc('portal_agendar',{p_token:TOKEN,p_inicio:s.f+'T'+s.h+':00-05:00',p_tipo:s.tipo,p_lugar:lugarEnvio(l),p_contacto:c}):Promise.resolve(demoAgendar(s)),
+ ciudades:t=>MODO==='prueba'?rpc('portal_ciudades',{p_token:TOKEN,p_texto:t}).then(d=>Array.isArray(d)?d:[]):Promise.resolve(Object.keys(DZ).map(k=>({cod:k,nombre:DZ[k].n,provincia:'',punto:DZ[k].c})).filter(c=>c.nombre.toLowerCase().startsWith(t.trim().toLowerCase()))),
  pedir:l=>MODO==='prueba'?rpc('portal_pedir_contacto',{p_token:TOKEN,p_lugar:lugarEnvio(l)}):Promise.resolve({ok:true})};
 // ===== Demostración (sin enlace): lugar y horarios simulados =====
 const DZ={'1701':{n:'Quito',c:[-0.1807,-78.4678],z:[['z1701-1','Norte',[-0.135,-78.482]],['z1701-2','Centro',[-0.218,-78.508]],['z1701-3','Sur',[-0.28,-78.54]],['z1701-4','Valle de los Chillos',[-0.3,-78.46]],['z1701-5','Valles Cumbayá y Tumbaco',[-0.205,-78.415]]]},
