@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <title>Aseguradora del Sur · Mi inspección</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#14263f;--muted:#5b6b80;--line:#dde3ea;--soft:#f4f7fa;--p:#0B5CAD;--pd:#0B2E59;--ok:#1f7a5c;--okbg:#e7f4ee;--warn:#9a6400;--warnbg:#fdf3dc;--bad:#b42318;--badbg:#fdecea}
@@ -42,6 +43,11 @@ h1{font-size:24px;margin:2px 0 6px;line-height:1.2}h2{font-size:17px;margin:16px
 .horas{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.hora{border:1.5px solid var(--line);border-radius:10px;padding:10px 0;font-weight:800;background:#fff;font-size:15px}.hora.fija{border-color:#9fd4bd;background:#f2faf6}.hora.red{border-style:dashed}.hora.on{background:var(--p);border-color:var(--p);color:#fff;border-style:solid}
 .insp{display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px;border-radius:12px;background:#fff;border:1px solid var(--line)}.insp .av{width:40px;height:40px;border-radius:50%;background:var(--p);color:#fff;display:grid;place-items:center;font-weight:900}.insp small{display:block;color:var(--muted);font-size:12.5px}
 .busca{text-align:center}.radar{position:relative;width:86px;height:86px;margin:6px auto 10px}.radar i{position:absolute;inset:0;border-radius:50%;border:2px solid var(--p);opacity:0;animation:rd 2.4s infinite}.radar i:nth-child(2){animation-delay:.8s}.radar i:nth-child(3){animation-delay:1.6s}.radar:after{content:"🔎";position:absolute;inset:0;display:grid;place-items:center;font-size:26px}
+.pasoN{margin:2px 0 0;font-size:13px;font-weight:800;color:var(--p)}
+.mapa{width:100%;height:210px;border-radius:12px;border:1px solid var(--line);margin:10px 0 4px;background:var(--soft);position:relative;z-index:0}
+.aviso{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--soft);font-size:14px;margin:8px 0}.aviso.ok{background:var(--okbg);color:var(--ok)}.aviso.warn{background:var(--warnbg);color:var(--warn)}.aviso span{color:var(--ink)}
+.sug{display:flex;flex-direction:column;gap:6px;margin:-4px 0 6px}.sugI{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;color:var(--ink)}.sugI small{display:block;color:var(--muted);font-size:12.5px}
+.sino{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sino button{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-weight:800;color:var(--ink);min-height:48px}.sino button.on{border-color:var(--p);background:#eef5fd;color:var(--p)}
 @keyframes rd{0%{transform:scale(.3);opacity:.9}100%{transform:scale(1);opacity:0}}@media (prefers-reduced-motion:reduce){.radar i{animation:none;opacity:.3}}
 </style></head><body>
 <div class="app">
@@ -51,9 +57,13 @@ h1{font-size:24px;margin:2px 0 6px;line-height:1.2}h2{font-size:17px;margin:16px
 </div>
 <div class="toast" id="toast" role="status"></div>
 <input type="file" id="fCam" accept="image/*" capture="environment" hidden><input type="file" id="fArch" accept="image/*,application/pdf" hidden>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 // ===== Conexión de la prueba de concepto (fase P) =====
+// G-3b (19/11/2026 · SQL 46 · DEC-222 a DEC-224): agenda en tres pasos, como G-2d del prototipo: 1 Lugar (GPS o búsqueda, mapa con el punto
+// movible, zona calculada por la base; Ramos Generales confirma la dirección de la solicitud) · 2 Horario (solo de los inspectores que cubren
+// ese lugar: confirmación inmediata o pedido a la red) · 3 Confirmación (quién recibe y celular). Sin horarios: «te contactará un coordinador».
 // Con ?t=<enlace> el portal trabaja contra la base de datos real (modo prueba); sin enlace, en modo demostración.
 const CONEX={url:'https://qdciqoxselwmudlycprq.supabase.co',key:'sb_publishable_pUrNhusonmxflSItZlU0fQ_ohRpCrYW'};
 const TOKEN=new URLSearchParams(location.search).get('t')||(location.hash.match(/t=([^&]+)/)||[])[1]||null;
@@ -77,10 +87,11 @@ const TIPOS={
 const CAMPOS={veh_placa:'Placa',veh_vin:'VIN (chasis)',veh_anio:'Año',prop_identificacion:'Identificación del propietario',mat_caducidad:'Caducidad de la matrícula',lic_numero:'Número de licencia',lic_categoria:'Categoría de licencia',lic_vencimiento:'Vencimiento de la licencia',ext_factura_valor:'Valor de la factura del extra',rg_permiso_bomberos_vigencia:'Vigencia del permiso de bomberos',rg_extintores_recarga:'Fecha de recarga de extintores',rg_ruc:'RUC',em_serie:'Serie del equipo',em_modelo:'Modelo del equipo'};
 const ESPERADO={veh_placa:'GSE1120',prop_identificacion:'0923456781',rg_ruc:'1791234560001'};
 const INSP_FIJOS=['Marco Tapia','Cristian Vaca','Paola Vinueza'],RED=[['Daniel Herrera','Eurosurvey','AS-RED-0311',4.9],['Gabriela Suárez','Inspectora independiente','AS-RED-0487',4.8],['Jorge Mena','Insurval','AS-RED-0215',4.7]];
-const CLAVE=MODO==='prueba'?'sirius-portal-prueba-'+TOKEN:'sirius-autoagendamiento-v3';
-const nuevoEstado=t=>({tipo:t,sec:'estado',paso:'estado',etapa:'solicitud',cita:null,apartado:null,lugar:{dir:'',ref:'',quien:'',cel:'',lat:null,lng:null},docs:TIPOS[t].docs.map(d=>Object.assign({st:'pend'},d)),campos:{},camino:false,hist:[]});
+const CLAVE=MODO==='prueba'?'sirius-portal-prueba-v2-'+TOKEN:'sirius-autoagendamiento-v4';   // G-3b: estado nuevo (lugar y contacto)
+const nuevoEstado=t=>({tipo:t,sec:'estado',paso:'estado',etapa:'solicitud',cita:null,apartado:null,lugar:{direccion:'',referencia:'',punto:null,origen:''},contacto:{quien:'',cel:''},rgResp:null,docs:TIPOS[t].docs.map(d=>Object.assign({st:'pend'},d)),campos:{},camino:false,hist:[]});
 let S;try{S=JSON.parse(localStorage.getItem(CLAVE))}catch(e){}
-if(!S||!TIPOS[S.tipo])S=nuevoEstado('veh');
+if(!S||!TIPOS[S.tipo]||!S.contacto)S=nuevoEstado('veh');
+S.H=null;S.Hkey=null;S.Hcargando=null;S.pidiendo=null;S.lugarCalc=false;if(S.paso==='lugar')S.paso='sitio';
 const TP=()=>TIPOS[S.tipo];
 const guardar=()=>{try{localStorage.setItem(CLAVE,JSON.stringify(S))}catch(e){toast('No se pudo guardar en este navegador')}};
 const $=s=>document.querySelector(s),esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
@@ -107,88 +118,198 @@ const avisoPoco='<p class="sm" style="margin:6px 0 0;color:var(--warn);font-weig
 function finHora(h){return aHora(aMin(h)+TP().dur);}
 function citaTxt(){if(!S.cita)return '';return fLarga(aFecha(S.cita.f,'00:00'))+' · '+S.cita.h+' a '+finHora(S.cita.h);}
 const pend=()=>S.docs.filter(d=>!d.opc&&(d.st==='pend'||d.st==='rech')).length;
-function cardBuscando(){const r=Math.max(0,Math.ceil((S.cita.buscarHasta-Date.now())/1000));return '<div class="card hi busca"><div class="radar"><i></i><i></i><i></i></div><b>Te estamos buscando un inspector</b><p style="margin:4px 0 0">Enviamos tu cita a '+S.cita.red+' inspectores de la red cerca de '+esc(TP().zona)+'.<br><span class="mut sm">'+citaTxt()+'</span></p><p class="mut sm" style="margin:6px 0 0">Te avisaremos por WhatsApp apenas uno la acepte'+(r?' · normalmente en minutos':'')+'.</p></div>';}
+function cardBuscando(){const hasta=S.cita.buscarHasta?new Date(S.cita.buscarHasta):null,n=S.cita.red;return '<div class="card hi busca"><div class="radar"><i></i><i></i><i></i></div><b>Te confirmaremos tu cita</b><p style="margin:4px 0 0">Se la pedimos a '+(n?n+(n===1?' inspector':' inspectores'):'los inspectores')+' de la red que '+(n===1?'atiende ':'atienden ')+esc(S.lugar.texto||'tu zona')+'.<br><span class="mut sm">'+citaTxt()+'</span></p><p class="mut sm" style="margin:6px 0 0">Te avisaremos apenas uno la acepte'+(hasta?' · a más tardar a las '+p2(hasta.getHours())+':'+p2(hasta.getMinutes())+(hasta.toDateString()!==new Date().toDateString()?' del '+hasta.getDate()+'/'+p2(hasta.getMonth()+1):''):'')+'.</p></div>';}
 function cardInspector(){const i=S.cita.insp;return '<div class="insp"><span class="av">'+i.nombre.split(' ').map(x=>x[0]).join('').slice(0,2)+'</span><div><b>'+esc(i.nombre)+'</b><small>'+esc(i.org)+' · credencial '+esc(i.cred)+(i.nota?' · ★ '+i.nota:'')+'</small></div></div>';}
 const V={
 estado(){const e=PASOS[S.etapa],hoyVisita=S.cita&&S.cita.f===iso(new Date())&&S.etapa==='agendada';
- const accion=S.etapa==='solicitud'?'<div class="card hi"><b>Agenda tu inspección</b><p class="mut" style="margin:4px 0 0">Elige el día y la hora en que un inspector visite '+TP().bienCorto+'.</p><button class="btn" onclick="ir(\'agenda\',\'dia\')">Elegir fecha y hora</button></div>'
+ const accion=S.etapa==='solicitud'?(S.sinred?'<div class="card warn"><b>No encontramos un inspector para ese horario</b><p class="sm" style="margin:4px 0 0">Ningún inspector de la red tomó tu cita del '+esc(S.sinred)+'. Elige otro horario o llámanos.</p><button class="btn" onclick="S.sel=null;S.Hkey=null;ir(\'agenda\',faltaLugar()?\'sitio\':\'dia\')">Elegir otro horario</button></div>':'<div class="card hi"><b>Agenda tu inspección</b><p class="mut" style="margin:4px 0 0">Primero dinos dónde y luego elige el día y la hora en que un inspector visite '+TP().bienCorto+'.</p><button class="btn" onclick="ir(\'agenda\',\'sitio\')">Elegir el lugar y la hora</button></div>')
  :S.etapa==='buscando'?cardBuscando()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button>'
- :S.etapa==='agendada'?((MODO==='prueba'?S.cxCamino:(hoyVisita||S.camino))?'<div class="card hi"><b>Tu inspector va en camino</b>'+cardInspector()+'<p class="mut" style="margin:6px 0 0">Llega aprox. '+llegada()+'</p><button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver la cita</button></div>':'<div class="card hi"><b>Inspección agendada</b><p style="margin:4px 0 6px">'+citaTxt()+'<br><span class="mut">'+esc(S.lugar.dir)+'</span></p>'+cardInspector()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button></div>')
+ :S.etapa==='agendada'?((MODO==='prueba'?S.cxCamino:(hoyVisita||S.camino))?'<div class="card hi"><b>Tu inspector va en camino</b>'+cardInspector()+'<p class="mut" style="margin:6px 0 0">Llega aprox. '+llegada()+'</p><button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver la cita</button></div>':'<div class="card hi"><b>Inspección agendada</b><p style="margin:4px 0 6px">'+citaTxt()+'<br><span class="mut">'+esc(S.lugar.direccion||'')+'</span></p>'+cardInspector()+'<button class="btn btn2" onclick="ir(\'agenda\',\'cita\')">Ver o cambiar la cita</button></div>')
  :S.etapa==='completada'?'<div class="card hi"><b>Revisión completada</b><p class="mut" style="margin:4px 0 0">Tu asesor te contactará con el siguiente paso.</p></div>':'';
  const T=[['Solicitud recibida','Tu solicitud está registrada'],[S.etapa==='buscando'?'Buscando inspector':'Inspección agendada',S.cita?citaTxt():'Pendiente: elige una fecha'],['Inspección realizada','El inspector registra fotos y datos'],['En revisión','La aseguradora revisa el informe'],['Revisión completada','Tu asesor te contactará']];
  return '<h1>Hola, '+esc(TP().cliente.split(' ')[0])+'</h1><p class="mut">Tu inspección de '+esc(TP().nombre)+' · '+esc(TP().bien)+'</p>'+accion+'<ul class="tl">'+T.map((t,i)=>'<li><span class="dot '+(i<e||(i===e&&i===4)?'ok':i===e?'cur':'')+'">'+(i<e||(i===e&&i===4)?'✓':i+1)+'</span><div><b>'+t[0]+'</b><small>'+esc(t[1])+'</small></div></li>').join('')+'</ul>'+
  (pend()?'<div class="card warn"><b>Tienes '+pend()+' documento'+(pend()>1?'s':'')+' pendiente'+(pend()>1?'s':'')+'</b><button class="btn btn2" onclick="ir(\'docs\',\'docs\')">Ver documentos</button></div>':'')+
  '<p class="mut sm">¿Dudas? Llámanos al <a href="tel:'+CFG.tel+'">'+CFG.telTxt+'</a>.</p>'+prueba();},
-dia(){if(S.etapa!=='solicitud'&&!S.cambiando)return V.cita();const dias=proximosDias();if(!S.selF||!dias.some(d=>iso(d)===S.selF)){const pri=dias.find(d=>horas(iso(d)).some(h=>disp(iso(d),h)));S.selF=pri?iso(pri):iso(dias[0]);}
- const hs=horas(S.selF).map(h=>[h,disp(S.selF,h)]),fij=hs.filter(x=>x[1]==='fija'),red=hs.filter(x=>x[1]==='red');
- const chip=([h,m])=>'<button class="hora '+m+(S.selH===h?' on':'')+'" onclick="S.selH=\''+h+'\';S.selModo=\''+m+'\';pintar()">'+h+'</button>';
- return '<button class="btn3" onclick="S.cambiando=false;S.selH=null;ir(\'estado\',\'estado\')">‹ Volver</button><h1>'+(S.cambiando?'Elige la nueva fecha':'¿Qué día te queda bien?')+'</h1><p class="mut">La visita dura unos '+(TP().dur>=60?(TP().dur/60).toString().replace('.',',')+' h':TP().dur+' min')+'. Zona: '+esc(TP().zona)+'.</p><div class="days" role="listbox" aria-label="Días">'+dias.map(d=>{const f=iso(d),n=horas(f).filter(h=>disp(f,h)).length;return '<button class="day '+(f===S.selF?'on':'')+'" '+(n?'':'disabled')+' role="option" aria-selected="'+(f===S.selF)+'" onclick="S.selF=\''+f+'\';S.selH=null;pintar()"><small>'+DS[d.getDay()]+'</small><b>'+d.getDate()+'</b><small>'+MS[d.getMonth()]+'</small></button>';}).join('')+'</div>'+
- '<h2>Confirmación inmediata</h2><p class="mut sm" style="margin:0 0 8px">Un inspector de nuestra agenda tiene libre ese horario.</p><div class="horas">'+(fij.length?fij.map(chip).join(''):'<p class="mut sm">No hay horarios con confirmación inmediata este día.</p>')+'</div>'+
- '<h2>Otros horarios</h2><p class="mut sm" style="margin:0 0 8px">Buscamos un inspector de nuestra red para ese horario y te confirmamos quién irá.</p><div class="horas">'+(red.length?red.map(chip).join(''):'<p class="mut sm">Sin otros horarios.</p>')+'</div>'+
- (S.selH?'<div class="card '+(S.selModo==='fija'?'hi':'')+'" style="margin-top:14px"><b>'+fLarga(aFecha(S.selF,'00:00'))+' · '+S.selH+' a '+finHora(S.selH)+'</b><p class="mut sm" style="margin:4px 0 0">'+(S.selModo==='fija'?'Confirmación inmediata con un inspector de nuestra agenda.':'Buscaremos un inspector de la red; te confirmamos apenas uno acepte.')+'</p>'+(poco(S.selF,S.selH)?avisoPoco:'')+'</div>':'')+
- '<button class="btn" '+(S.selH?'':'disabled')+' onclick="apartar()">Continuar</button>';},
-lugar(){if(!S.apartado)return V.dia();const l=S.lugar,q=l.lat?l.lat+','+l.lng:'-0.1807,-78.4678',[la,lo]=q.split(',').map(Number),bb=(lo-.006)+','+(la-.004)+','+(lo+.006)+','+(la+.004);
- return '<button class="btn3" onclick="soltar();ir(\'agenda\',\'dia\')">‹ Volver</button><h1>'+TP().preg+'</h1>'+(S.apartado.modo==='fija'?'<div class="timer">⏱ Te guardamos el horario <span id="tt"></span></div>':'<div class="timer" style="background:#eef5fd;color:var(--p)">Al confirmar, buscamos un inspector de la red para este horario.</div>')+
- '<iframe class="map" title="Mapa" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox='+bb+'&layer=mapnik&marker='+la+','+lo+'"></iframe><button class="btn btn2" onclick="ubicar()">📍 Usar mi ubicación actual</button>'+
- fld('dir','Dirección','Calle principal, número y transversal')+fld('ref','Referencia','Ej.: edificio, piso, color del portón')+fld('quien','¿Quién recibe al inspector?','Nombre y apellido')+fld('cel','Celular de contacto','09XXXXXXXX','tel')+
- '<div class="card"><b>'+fLarga(aFecha(S.apartado.f,'00:00'))+' · '+S.apartado.h+' a '+finHora(S.apartado.h)+'</b><p class="mut sm" style="margin:4px 0 0">'+esc(TP().consejo)+'</p>'+(poco(S.apartado.f,S.apartado.h)?avisoPoco:'')+'</div><button class="btn" onclick="confirmar()">'+(S.apartado.modo==='fija'?'Confirmar la cita':'Buscar un inspector')+'</button>';},
+sitio(){const C=ctx(),fijo=C.fijo,sol=C.solicitud||{};
+ let h='<button class="btn3" onclick="'+(S.cambiando&&S.cita?'S.cambiando=false;ir(\'agenda\',\'cita\')':'ir(\'estado\',\'estado\')')+'">‹ Volver</button>'+pasoTit(1,'Lugar')+'<h1>'+esc(TP().preg)+'</h1><p class="mut">'+(fijo?'Los horarios dependen de los inspectores que atienden ese lugar.':'Primero el lugar: los horarios dependen de los inspectores que atienden esa zona.')+'</p>';
+ if(fijo){
+  h+='<div class="card"><b>'+esc(sol.direccion||'Dirección de la solicitud')+'</b><p class="mut sm" style="margin:2px 0 0">'+esc(sol.texto||'')+'</p><div id="mapa" class="mapa" role="img" aria-label="Mapa con la dirección de la solicitud"></div></div>'+
+   '<p style="font-weight:800;margin:14px 0 6px" id="pRg">¿La inspección es en esta dirección?</p><div class="sino" role="radiogroup" aria-labelledby="pRg"><button role="radio" aria-checked="'+(S.rgResp==='si')+'" class="'+(S.rgResp==='si'?'on':'')+'" onclick="rgResp(\'si\')">Sí</button><button role="radio" aria-checked="'+(S.rgResp==='no')+'" class="'+(S.rgResp==='no'?'on':'')+'" onclick="rgResp(\'no\')">No, es otra</button></div>';
+  if(S.rgResp==='no')h+=fldL('direccion','Escribe la dirección correcta','Calle principal, número y transversal')+fldL('referencia','Referencia','Ej.: edificio, piso, color del portón');
+  h+='<div id="zmsg">'+(S.rgResp?avisoLugar():'')+'</div>';
+ }else{
+  h+='<button class="btn btn2" id="bGps" onclick="usarGps()">📍 Usar mi ubicación</button>'+buscador()+
+   '<div id="mapa" class="mapa" role="img" aria-label="Mapa: arrastra el punto para ajustarlo"></div><div id="zmsg">'+avisoLugar()+'</div>'+
+   fldL('direccion','Dirección exacta','Calle principal, número y transversal')+fldL('referencia','Referencia','Ej.: edificio, piso, color del portón');
+ }
+ const f=faltaLugar();
+ return h+'<button class="btn" id="bSig" '+(f?'disabled':'')+' onclick="irHorario()">Siguiente: Horario</button><p class="mut sm" style="text-align:center;margin:6px 0 0" id="faltaL">'+esc(f)+'</p>';},
+dia(){if(S.etapa!=='solicitud'&&!S.cambiando)return V.cita();if(faltaLugar())return V.sitio();
+ const lt=esc(S.lugar.texto||'tu zona'),top='<button class="btn3" onclick="ir(\'agenda\',\'sitio\')">‹ Cambiar el lugar</button>'+pasoTit(2,'Horario')+'<h1>'+(S.cambiando?'Cambiar tu cita':'Horarios para '+lt)+'</h1>'+(S.cambiando?'<p class="mut">'+lt+'</p>':'');
+ const H=S.H&&S.Hkey===claveLugar()?S.H:null;
+ if(!H){cargarHorarios();return top+'<p class="mut" role="status">Buscando los horarios de los inspectores que atienden ese lugar…</p>';}
+ if(H.error)return top+'<div class="aviso warn" role="alert"><b>No pudimos cargar los horarios</b><span>'+esc(H.error)+'</span></div><button class="btn btn2" onclick="S.Hkey=null;pintar()">Intentar de nuevo</button>';
+ if(H.sinHorarios){pedirContacto();return top+'<div class="aviso warn" role="status" id="sinHorarios"><b>No hay horarios inmediatos para tu zona: te contactará un coordinador</b><span>Ningún inspector atiende '+lt+' en los próximos días.</span></div>'+
+  (S.pedido===claveLugar()?'<p class="mut sm" role="status">Registramos tu pedido. Si prefieres, llámanos.</p>':'<p class="mut sm" role="status">Registrando tu pedido…</p>')+'<a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a><button class="btn btn3" onclick="ir(\'agenda\',\'sitio\')">Elegir otro lugar</button>';}
+ const dias=H.dias.filter(d=>d.inmediata.length+d.red.length);if(!S.selF||!dias.some(d=>d.fecha===S.selF))S.selF=(dias[0]||{}).fecha;
+ const dia=dias.find(d=>d.fecha===S.selF)||{inmediata:[],red:[]},sel=S.sel&&S.sel.f===S.selF?S.sel:null;
+ const chip=(x,m)=>'<button class="hora '+m+(sel&&sel.h===x&&sel.tipo===m?' on':'')+'" aria-pressed="'+!!(sel&&sel.h===x&&sel.tipo===m)+'" onclick="S.sel={f:\''+S.selF+'\',h:\''+x+'\',tipo:\''+m+'\'};guardar();pintar()">'+x+'</button>';
+ return top+'<p class="mut">La visita dura unos '+durTxt()+'.</p><div class="days" role="listbox" aria-label="Días">'+dias.map(d=>{const x=aFecha(d.fecha,'00:00');return '<button class="day '+(d.fecha===S.selF?'on':'')+'" role="option" aria-selected="'+(d.fecha===S.selF)+'" onclick="S.selF=\''+d.fecha+'\';S.sel=null;pintar()"><small>'+DS[x.getDay()]+'</small><b>'+x.getDate()+'</b><small>'+MS[x.getMonth()]+'</small></button>';}).join('')+'</div>'+
+  '<h2>Confirmación inmediata</h2><p class="mut sm" style="margin:0 0 8px">Un inspector de nuestra agenda que atiende tu zona tiene libre ese horario.</p><div class="horas">'+(dia.inmediata.length?dia.inmediata.map(x=>chip(x,'fija')).join(''):'<p class="mut sm" style="grid-column:1/-1;margin:0">No hay horarios con confirmación inmediata este día.</p>')+'</div>'+
+  '<h2>Otros horarios</h2><p class="mut sm" style="margin:0 0 8px">Se los pedimos a los inspectores de la red que atienden tu zona y te confirmamos apenas uno acepte.</p><div class="horas">'+(dia.red.length?dia.red.map(x=>chip(x,'red')).join(''):'<p class="mut sm" style="grid-column:1/-1;margin:0">Sin otros horarios este día.</p>')+'</div>'+
+  (sel?'<div class="card '+(sel.tipo==='fija'?'hi':'')+'" style="margin-top:14px"><b>'+fLarga(aFecha(sel.f,'00:00'))+' · '+sel.h+' a '+finHora(sel.h)+'</b><p class="mut sm" style="margin:4px 0 0">'+(sel.tipo==='fija'?'Confirmación inmediata con un inspector de nuestra agenda.':'Se lo pediremos a los inspectores de la red'+(H.redAmpliada?' que atienden las zonas de la ciudad':'')+'; te confirmamos apenas uno acepte.')+'</p>'+(poco(sel.f,sel.h)?avisoPoco:'')+'</div>':'')+
+  '<button class="btn" '+(sel?'':'disabled')+' onclick="ir(\'agenda\',\'conf\')">Siguiente: Confirmación</button>';},
+conf(){if(!S.sel||faltaLugar())return V.dia();const l=S.lugar,red=S.sel.tipo==='red';
+ return '<button class="btn3" onclick="ir(\'agenda\',\'dia\')">‹ Volver</button>'+pasoTit(3,'Confirmación')+'<h1>Confirma tu cita</h1>'+
+  '<div class="card hi"><b>'+fLarga(aFecha(S.sel.f,'00:00'))+' · '+S.sel.h+' a '+finHora(S.sel.h)+'</b><p class="mut sm" style="margin:4px 0 0">'+(red?'Por confirmar: se lo pedimos a la red de inspectores.':'Confirmación inmediata.')+'</p>'+(poco(S.sel.f,S.sel.h)?avisoPoco:'')+'</div>'+
+  '<div class="card"><b>'+esc(l.texto||'')+'</b><p class="mut sm" style="margin:4px 0 0">'+esc(l.direccion||'')+(l.referencia?' · '+esc(l.referencia):'')+'</p><button class="btn3" onclick="ir(\'agenda\',\'sitio\')">Cambiar el lugar</button></div>'+
+  fldC('quien','¿Quién recibe al inspector?','Nombre y apellido')+fldC('cel','Celular de contacto','09XXXXXXXX','tel')+
+  '<p class="mut sm">'+esc(TP().consejo)+'</p><button class="btn" id="bConf" onclick="confirmar()">'+(red?'Pedir este horario':'Confirmar la cita')+'</button>';},
 ok(){return '<div class="ok-big">✓</div><h1 style="text-align:center">¡Listo! Tu inspección está agendada</h1><p class="mut" style="text-align:center">'+citaTxt()+'</p>'+cardInspector()+'<p class="mut sm" style="text-align:center">Te recordaremos el día anterior.</p><button class="btn btn2" onclick="ics()">Agregar a mi calendario</button><button class="btn" onclick="ir(\'estado\',\'estado\')">Ver mi inspección</button>';},
-buscando(){return '<h1 style="text-align:center;margin-top:10px">Buscando tu inspector</h1>'+cardBuscando()+'<button class="btn btn2" onclick="ir(\'estado\',\'estado\')">Ver mi inspección</button>';},
-sinred(){return '<h1>No encontramos un inspector para ese horario</h1><p class="mut">Ningún inspector de la red pudo tomar tu cita del '+esc(S.sinred||'')+'. Elige otro horario: los de confirmación inmediata están garantizados.</p><button class="btn" onclick="S.cambiando=false;ir(\'agenda\',\'dia\')">Elegir otro horario</button><a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a>';},
-cita(){if(!S.cita)return '<h1>Tu cita</h1><p class="mut">Aún no tienes cita.</p><button class="btn" onclick="ir(\'agenda\',\'dia\')">Elegir fecha y hora</button>';
+buscando(){return '<h1 style="text-align:center;margin-top:10px">Te confirmaremos tu cita</h1>'+cardBuscando()+'<button class="btn btn2" onclick="ir(\'estado\',\'estado\')">Ver mi inspección</button>';},
+sinred(){return '<h1>No encontramos un inspector para ese horario</h1><p class="mut">Ningún inspector de la red pudo tomar tu cita del '+esc(S.sinred||'')+'. Elige otro horario: los de confirmación inmediata están garantizados.</p><button class="btn" onclick="S.cambiando=false;S.sel=null;S.Hkey=null;ir(\'agenda\',\'dia\')">Elegir otro horario</button><a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a>';},
+cita(){if(!S.cita)return '<h1>Tu cita</h1><p class="mut">Aún no tienes cita.</p><button class="btn" onclick="ir(\'agenda\',\'sitio\')">Elegir el lugar y la hora</button>';
  const ini=aFecha(S.cita.f,S.cita.h),mh=minutosHabiles(new Date(),ini),gracia=S.cita.agendadoEn&&Date.now()<S.cita.agendadoEn+15*60000,puede=S.etapa==='buscando'||(S.etapa==='agendada'&&(MODO==='prueba'&&S.cita.modificable!=null?S.cita.modificable:(mh>=CFG.cambioHorasHabiles*60||gracia)));
- return '<button class="btn3" onclick="ir(\'estado\',\'estado\')">‹ Volver</button><h1>Tu cita</h1>'+(S.etapa==='buscando'?cardBuscando():'<div class="card hi"><b>'+citaTxt()+'</b><p class="mut" style="margin:4px 0 6px">'+esc(S.lugar.dir)+(S.lugar.ref?' · '+esc(S.lugar.ref):'')+'<br>Recibe: '+esc(S.lugar.quien)+' · '+esc(S.lugar.cel)+'</p>'+cardInspector()+'</div>')+
- (puede?'<button class="btn btn2" onclick="S.cambiando=true;S.selH=null;ir(\'agenda\',\'dia\')">Cambiar fecha u hora</button><button class="btn btnr" onclick="cancelar()">Cancelar la cita</button><p class="mut sm">'+(gracia&&mh<CFG.cambioHorasHabiles*60?'Acabas de agendarla: puedes cambiarla o cancelarla hasta las '+(d=>p2(d.getHours())+':'+p2(d.getMinutes()))(new Date(S.cita.agendadoEn+15*60000))+'. Después, solo llamando a la aseguradora.':'Puedes cambiarla o cancelarla hasta '+CFG.cambioHorasHabiles+' horas hábiles antes.')+'</p>':'<div class="card warn"><b>Ya no se puede cambiar desde aquí</b><p class="sm" style="margin:4px 0 0">Faltan menos de '+CFG.cambioHorasHabiles+' horas hábiles para tu cita.</p><a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a></div>')+
+ return '<button class="btn3" onclick="ir(\'estado\',\'estado\')">‹ Volver</button><h1>Tu cita</h1>'+(S.etapa==='buscando'?cardBuscando():'<div class="card hi"><b>'+citaTxt()+'</b><p class="mut" style="margin:4px 0 6px">'+(S.lugar.texto?'<b style="color:var(--ink)">'+esc(S.lugar.texto)+'</b><br>':'')+esc(S.lugar.direccion||'')+(S.lugar.referencia?' · '+esc(S.lugar.referencia):'')+'<br>Recibe: '+esc(S.contacto.quien||'')+' · '+esc(S.contacto.cel||'')+'</p>'+cardInspector()+'</div>')+
+ (puede?'<button class="btn btn2" onclick="S.cambiando=true;S.sel=null;S.Hkey=null;ir(\'agenda\',\'dia\')">Cambiar fecha u hora</button><button class="btn btn3" onclick="S.cambiando=true;S.sel=null;S.Hkey=null;ir(\'agenda\',\'sitio\')">Cambiar el lugar</button><button class="btn btnr" onclick="cancelar()">Cancelar la cita</button><p class="mut sm">'+(gracia&&mh<CFG.cambioHorasHabiles*60?'Acabas de agendarla: puedes cambiarla o cancelarla hasta las '+(d=>p2(d.getHours())+':'+p2(d.getMinutes()))(new Date(S.cita.agendadoEn+15*60000))+'. Después, solo llamando a la aseguradora.':'Puedes cambiarla o cancelarla hasta '+CFG.cambioHorasHabiles+' horas hábiles antes.')+'</p>':'<div class="card warn"><b>Ya no se puede cambiar desde aquí</b><p class="sm" style="margin:4px 0 0">Faltan menos de '+CFG.cambioHorasHabiles+' horas hábiles para tu cita.</p><a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a></div>')+
  (S.etapa==='agendada'?'<button class="btn btn3" onclick="ics()">Agregar a mi calendario</button>':'');},
 docs(){return '<h1>Documentos</h1><p class="mut">Te guiamos foto por foto.</p>'+S.docs.map((d,i)=>{const st={pend:['c-p',d.opc?'Opcional':'Pendiente'],rech:['c-x','Volver a subir'],rev:['c-r','En revisión'],ok:['c-a','Aceptado']}[d.st];
  return '<div class="doc"><span class="ic">'+(d.mini?'<img src="'+d.mini+'" alt="">':'📄')+'</span><div><b>'+esc(d.n)+'</b><small>'+esc(d.d)+'</small>'+(d.st==='rech'&&d.motivo?'<small style="color:var(--bad);font-weight:700">'+esc(d.motivo)+'</small>':'')+'</div>'+(d.st==='pend'||d.st==='rech'?'<button class="btn" style="width:auto;margin:0;padding:9px 14px;min-height:40px" onclick="camara('+i+')">Fotografiar</button>':'<span class="chip '+st[0]+'">'+st[1]+'</span>')+'</div>';}).join('')+
  '<p class="mut sm">El documento dentro del marco, con buena luz y sin reflejos. Tus documentos se usan solo para tu inspección.</p>';},
 };
-function fld(k,l,ph,t){const v=S.lugar[k]||'',bad=S.errs&&S.errs[k];return '<div class="f"><label for="l_'+k+'">'+l+'</label><input id="l_'+k+'" '+(t?'type="'+t+'" inputmode="numeric"':'')+' value="'+esc(v)+'" placeholder="'+ph+'" aria-invalid="'+(!!bad)+'" oninput="S.lugar.'+k+'=this.value;guardar()">'+(bad?'<div class="err">'+bad+'</div>':'')+'</div>';}
 function llegada(){if(!S.cita)return '';const i=aFecha(S.cita.f,S.cita.h);const t=new Date(Math.max(Date.now()+25*60000,i.getTime()+10*60000));return p2(t.getHours())+':'+p2(t.getMinutes());}
 // ===== Acciones =====
 let tmr=null,busc=null;
-function apartar(){S.apartado={f:S.selF,h:S.selH,modo:S.selModo,hasta:Date.now()+CFG.apartadoMin*60000};S.errs=null;guardar();ir('agenda','lugar');}
-function soltar(){S.apartado=null;guardar();}
-function reloj(){clearInterval(tmr);if(S.paso!=='lugar'||!S.apartado||S.apartado.modo!=='fija')return;const tick=()=>{const r=S.apartado.hasta-Date.now();if(r<=0){clearInterval(tmr);S.apartado=null;S.selH=null;guardar();toast('El horario se liberó: elige de nuevo');ir('agenda','dia');return;}const e=$('#tt');if(e)e.textContent=Math.floor(r/60000)+':'+p2(Math.floor(r/1000)%60);};tick();tmr=setInterval(tick,1000);}
-function ubicar(){if(!navigator.geolocation){toast('Tu navegador no permite ubicación');return;}toast('Buscando tu ubicación…');navigator.geolocation.getCurrentPosition(p=>{S.lugar.lat=+p.coords.latitude.toFixed(5);S.lugar.lng=+p.coords.longitude.toFixed(5);guardar();pintar();toast('Ubicación marcada en el mapa (± '+Math.round(p.coords.accuracy)+' m)');},()=>toast('No pudimos obtener tu ubicación'),{enableHighAccuracy:true,timeout:12000});}
+// ===== Lugar de la inspección (G-3b · DEC-222): primero el lugar, después los horarios de quienes lo cubren =====
+// La base calcula ciudad, zona y estado de la zona (portal_lugar, SQL 46) con las mismas reglas del Back-office.
+const ctx=()=>S.ctx||{fijo:S.tipo==='rg',minutos:TP().dur,ciudadCaso:'1701',solicitud:S.tipo==='rg'?demoLugar({direccion:'Av. General Enríquez y Montúfar, Sangolquí',punto:[-0.3300,-78.4480],origen:'Solicitud'}):null};
+const pasoTit=(n,t)=>'<p class="pasoN">Paso '+n+' de 3 · '+t+'</p>';
+const durTxt=()=>TP().dur>=60?(TP().dur/60).toString().replace('.',',')+' h':TP().dur+' min';
+const latLug=()=>S.lugar&&S.lugar.punto?S.lugar.punto[0]:null,lngLug=()=>S.lugar&&S.lugar.punto?S.lugar.punto[1]:null;
+function claveLugar(){const l=S.lugar||{};return [l.ciudad,l.zona&&l.zona.id,l.estadoZona,(l.punto||[]).join(','),S.cambiando?1:0].join('|');}
+function faltaLugar(){const C=ctx(),l=S.lugar||{};
+ if(C.fijo){if(!S.rgResp)return 'Responde si la inspección es en esta dirección';if(S.rgResp==='no'&&String(l.direccion||'').trim().length<5)return 'Escribe la dirección correcta';}
+ if(S.lugarCalc)return 'Calculando la zona…';if(!l.ciudad)return 'Usa tu ubicación o busca la dirección';if(String(l.direccion||'').trim().length<5)return 'Escribe la dirección exacta';return '';}
+function revisarSig(){const b=$('#bSig');if(!b)return;const f=faltaLugar();b.disabled=!!f;const p=$('#faltaL');if(p)p.textContent=f;}
+function avisoLugar(){const l=S.lugar||{},fijo=ctx().fijo;if(S.lugarCalc)return '<div class="aviso" role="status">Calculando la zona…</div>';if(!l.ciudad)return '';
+ if(l.estadoZona==='Por confirmar')return '<div class="aviso warn" role="status"><b>'+(fijo?'Esta dirección queda por confirmar':'No pudimos ubicar tu dirección')+'</b><span>'+(fijo?'Un coordinador confirmará la zona antes de tu visita.':'Toca el mapa o continúa; un coordinador confirmará la zona.')+'</span></div>';
+ return '<div class="aviso ok" role="status"><b>Tu inspección será en '+esc(l.texto||'')+'</b>'+(l.punto&&!fijo?'<span>Si el punto no es correcto, muévelo.'+(l.lejos?' Está lejos del centro de la ciudad.':'')+'</span>':'')+'</div>';}
+function fldL(k,l,ph){const v=(S.lugar||{})[k]||'',bad=S.errs&&S.errs[k];return '<div class="f"><label for="l_'+k+'">'+l+'</label><input id="l_'+k+'" autocomplete="off" value="'+esc(v)+'" placeholder="'+ph+'" aria-invalid="'+(!!bad)+'" oninput="S.lugar.'+k+'=this.value;guardar();revisarSig()"'+(k==='direccion'?' onchange="if(ctx().fijo)calcLugar()"':'')+'>'+(bad?'<div class="err">'+bad+'</div>':'')+'</div>';}
+function fldC(k,l,ph,t){const v=S.contacto[k]||'',bad=S.errs&&S.errs[k];return '<div class="f"><label for="c_'+k+'">'+l+'</label><input id="c_'+k+'" '+(t?'type="'+t+'" inputmode="numeric" autocomplete="tel"':'autocomplete="name"')+' value="'+esc(v)+'" placeholder="'+ph+'" aria-invalid="'+(!!bad)+'" oninput="S.contacto.'+k+'=this.value;guardar()">'+(bad?'<div class="err">'+bad+'</div>':'')+'</div>';}
+function rgResp(k){S.rgResp=k;const sol=ctx().solicitud||{};
+ S.lugar=k==='si'?Object.assign({},sol,{origen:'Solicitud'}):{direccion:'',referencia:'',punto:null,ciudad:sol.ciudad||'',ciudadNombre:sol.ciudadNombre||'',origen:'Búsqueda'};
+ S.Hkey=null;guardar();pintar();if(k==='no')calcLugar();}
+function irHorario(){S.sel=null;S.Hkey=null;ir('agenda','dia');}
+let calcN=0;
+async function calcLugar(){const n=++calcN;S.lugarCalc=true;pintarLugar();
+ try{const r=await api.lugar(S.lugar);if(n!==calcN)return;const dir=S.lugar.direccion,ref=S.lugar.referencia;S.lugar=Object.assign({},r,{direccion:dir||r.direccion||'',referencia:ref||r.referencia||''});}
+ catch(e){if(n===calcN)toast('No pudimos calcular la zona: '+(e.message||e));}
+ if(n!==calcN)return;S.lugarCalc=false;S.Hkey=null;guardar();pintarLugar();moverPin();}
+function pintarLugar(){const z=$('#zmsg');if(z)z.innerHTML=avisoLugar();const d=$('#l_direccion');if(d&&document.activeElement!==d)d.value=S.lugar.direccion||'';revisarSig();}
+// GPS del celular (con permiso) y búsqueda de direcciones con OpenStreetMap (Nominatim: 1 consulta por segundo)
+const NOM='https://nominatim.openstreetmap.org/';let nomUlt=0;
+async function nomGet(u){const w=Math.max(0,1100-(Date.now()-nomUlt));if(w)await new Promise(r=>setTimeout(r,w));nomUlt=Date.now();const r=await fetch(u,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('Servicio de mapas '+r.status);return r.json();}
+function nomTexto(x){const a=x.address||{},p=[[a.road,a.house_number].filter(Boolean).join(' '),a.neighbourhood||a.suburb||a.quarter,a.city||a.town||a.village||a.county].filter(Boolean);return p.length?p.join(', '):String(x.display_name||'').split(',').slice(0,3).join(',').trim();}
+function nomCiudad(x){const a=x.address||{};return a.city||a.town||a.municipality||a.county||a.village||'';}
+async function reverso(pt){try{const x=await nomGet(NOM+'reverse?format=jsonv2&addressdetails=1&accept-language=es&lat='+pt[0]+'&lon='+pt[1]);return x&&!x.error?{texto:nomTexto(x),ciudad:nomCiudad(x)}:null;}catch(e){return null;}}
+function usarGps(){if(!navigator.geolocation){gpsFalla();return;}const b=$('#bGps');if(b){b.disabled=true;b.textContent='Buscando tu ubicación…';}
+ navigator.geolocation.getCurrentPosition(async p=>{const pt=[+p.coords.latitude.toFixed(6),+p.coords.longitude.toFixed(6)];
+  S.lugar=Object.assign({},S.lugar,{punto:pt,origen:'GPS',ciudad:'',ciudadNombre:'',zona:null,estadoZona:'',texto:''});S.lugarCalc=true;pintar();
+  const g=MODO==='prueba'?await reverso(pt):null;if(g){S.lugar.direccion=g.texto;S.lugar.ciudadNombre=g.ciudad;}
+  await calcLugar();pintar();toast('Ubicación marcada en el mapa (± '+Math.round(p.coords.accuracy)+' m)');},
+  ()=>gpsFalla(),{enableHighAccuracy:true,timeout:12000,maximumAge:60000});}
+function gpsFalla(){const b=$('#bGps');if(b){b.disabled=false;b.textContent='📍 Usar mi ubicación';}toast('No pudimos usar tu ubicación: escribe la dirección');const i=$('#bus');if(i)i.focus();}
+function centroCaso(){const s=ctx().solicitud;if(s&&s.punto)return s.punto;return {'1701':[-0.1807,-78.4678],'0901':[-2.1894,-79.8891],'0101':[-2.9001,-79.0059],'1801':[-1.2491,-78.6168]}[ctx().ciudadCaso||'1701']||[-0.1807,-78.4678];}
+function buscador(){return '<div class="f"><label for="bus">Buscar la dirección</label><input id="bus" type="search" autocomplete="off" placeholder="Calle, número, barrio o lugar conocido" value="'+esc(S.busq||'')+'" oninput="buscar(this.value)"></div><div id="sug" class="sug" aria-live="polite"></div>';}
+let busT=null,busN=0;
+function buscar(t){S.busq=t;clearTimeout(busT);const s=$('#sug');if(t.trim().length<3){S.sugs=[];if(s)s.innerHTML='';return;}if(s)s.innerHTML='<p class="mut sm">Buscando…</p>';
+ busT=setTimeout(async()=>{const n=++busN;let out=[];
+  if(MODO==='prueba'){try{const c=centroCaso();const a=await nomGet(NOM+'search?format=jsonv2&addressdetails=1&limit=6&countrycodes=ec&accept-language=es&bounded=0&viewbox='+[c[1]-.35,c[0]+.35,c[1]+.35,c[0]-.35].join(',')+'&q='+encodeURIComponent(t+', Ecuador'));
+   out=(a||[]).map(x=>({texto:nomTexto(x),ciudad:nomCiudad(x),punto:[+(+x.lat).toFixed(6),+(+x.lon).toFixed(6)]})).filter(x=>isFinite(x.punto[0])&&isFinite(x.punto[1]));}catch(e){}}
+  else out=demoBuscar(t);
+  if(n!==busN)return;S.sugs=out;pintarSug();},700);}
+function pintarSug(){const s=$('#sug');if(!s)return;const L=S.sugs||[],t=(S.busq||'').trim();
+ s.innerHTML=L.map((x,i)=>'<button class="sugI" onclick="elegirSug('+i+')"><b>'+esc(x.texto)+'</b><small>'+esc(x.ciudad||'')+'</small></button>').join('')+(t.length>=3?'<button class="sugI" onclick="talCual()"><b>Usar «'+esc(t)+'» tal como la escribí</b><small>Un coordinador confirmará la zona</small></button>':'');}
+function elegirSug(i){const x=(S.sugs||[])[i];if(!x)return;S.lugar=Object.assign({},S.lugar,{direccion:x.texto,punto:x.punto,ciudad:'',ciudadNombre:x.ciudad,origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
+function talCual(){const t=(S.busq||'').trim();S.lugar=Object.assign({},S.lugar,{direccion:t,punto:null,ciudad:'',ciudadNombre:'',origen:'Búsqueda',zona:null,estadoZona:''});S.sugs=[];S.busq='';pintar();calcLugar();}
+// Mapa pequeño (Leaflet): OpenStreetMap y, si sus teselas fallan, Esri. El punto se arrastra; sin punto, se toca el mapa para marcarlo.
+let MAPA=null,PIN=null;
+function montarMapa(){if(MAPA){try{MAPA.remove();}catch(e){}MAPA=null;PIN=null;}const el=$('#mapa');if(!el||!window.L)return;
+ const fijo=ctx().fijo,sol=ctx().solicitud||{},pt=(fijo&&S.rgResp!=='no'?sol.punto:S.lugar.punto)||centroCaso();
+ MAPA=L.map(el,{zoomControl:true}).setView(pt,(fijo?sol.punto:S.lugar.punto)?16:12);
+ const base=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(MAPA);let fallo=0;
+ base.on('tileerror',()=>{if(++fallo===4){MAPA.removeLayer(base);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Mapa base © Esri'}).addTo(MAPA);}});
+ if(!fijo)MAPA.on('click',e=>{if(S.lugar.punto)return;S.lugar=Object.assign({},S.lugar,{punto:[+e.latlng.lat.toFixed(6),+e.latlng.lng.toFixed(6)],origen:'Mapa'});calcLugar();});
+ moverPin();setTimeout(()=>MAPA&&MAPA.invalidateSize(),60);}
+function moverPin(){if(!MAPA)return;const fijo=ctx().fijo,pt=fijo&&S.rgResp!=='no'?(ctx().solicitud||{}).punto:S.lugar.punto;
+ if(!pt){if(PIN){MAPA.removeLayer(PIN);PIN=null;}return;}
+ if(!PIN){PIN=L.marker(pt,{draggable:!fijo,keyboard:true,title:'Lugar de la inspección',alt:'Lugar de la inspección'}).addTo(MAPA);
+  if(!fijo)PIN.on('dragend',()=>{const p=PIN.getLatLng();S.lugar=Object.assign({},S.lugar,{punto:[+p.lat.toFixed(6),+p.lng.toFixed(6)]});calcLugar();});}
+ else PIN.setLatLng(pt);MAPA.setView(pt,Math.max(MAPA.getZoom(),15));}
+// ===== Horarios por cobertura (portal_horarios) y pedido de contacto sin horarios (portal_pedir_contacto) =====
+let horN=0;
+async function cargarHorarios(){const k=claveLugar();if(S.Hcargando===k)return;S.Hcargando=k;const n=++horN;let H;
+ try{H=await api.horarios(S.lugar);}catch(e){H={error:e.message||String(e)};}
+ if(n!==horN)return;S.Hcargando=null;if(H.lugar)S.lugar=Object.assign({},S.lugar,H.lugar,{direccion:S.lugar.direccion,referencia:S.lugar.referencia});S.H=H;S.Hkey=claveLugar();if(S.paso==='dia')pintar();}
+function pedirContacto(){const k=claveLugar();if(S.pedido===k||S.pidiendo===k)return;S.pidiendo=k;
+ api.pedir(S.lugar).then(()=>{S.pedido=k;S.pidiendo=null;guardar();if(S.paso==='dia')pintar();}).catch(e=>{S.pidiendo=null;toast(e.message||String(e));});}
+function lugarEnvio(l){l=l||{};const o={ciudad:l.ciudad||'',ciudadNombre:l.ciudadNombre||'',direccion:l.direccion||'',referencia:l.referencia||'',punto:l.punto||null,origen:l.origen||'Búsqueda'};if(l.estadoZona==='Confirmada'){o.estadoZona='Confirmada';o.zona=l.zona;}return o;}
+const api={
+ lugar:l=>MODO==='prueba'?rpc('portal_lugar',{p_token:TOKEN,p_lugar:lugarEnvio(l)}).then(d=>d.lugar):Promise.resolve(demoLugar(l)),
+ horarios:l=>MODO==='prueba'?rpc('portal_horarios',{p_token:TOKEN,p_lugar:lugarEnvio(l)}):Promise.resolve(demoHorarios(l)),
+ agendar:(s,l,c)=>MODO==='prueba'?rpc('portal_agendar',{p_token:TOKEN,p_inicio:s.f+'T'+s.h+':00-05:00',p_tipo:s.tipo,p_lugar:lugarEnvio(l),p_contacto:c}):Promise.resolve(demoAgendar(s)),
+ pedir:l=>MODO==='prueba'?rpc('portal_pedir_contacto',{p_token:TOKEN,p_lugar:lugarEnvio(l)}):Promise.resolve({ok:true})};
+// ===== Demostración (sin enlace): lugar y horarios simulados =====
+const DZ={'1701':{n:'Quito',c:[-0.1807,-78.4678],z:[['z1701-1','Norte',[-0.135,-78.482]],['z1701-2','Centro',[-0.218,-78.508]],['z1701-3','Sur',[-0.28,-78.54]],['z1701-4','Valle de los Chillos',[-0.3,-78.46]],['z1701-5','Valles Cumbayá y Tumbaco',[-0.205,-78.415]]]},
+ '0901':{n:'Guayaquil',c:[-2.1894,-79.8891],z:[]},'0101':{n:'Cuenca',c:[-2.9001,-79.0059],z:[]},'1801':{n:'Ambato',c:[-1.2491,-78.6168],z:[]}};
+function kmD(a,b){const t=x=>x*Math.PI/180,dl=t(b[0]-a[0]),dn=t(b[1]-a[1]),h=Math.sin(dl/2)**2+Math.cos(t(a[0]))*Math.cos(t(b[0]))*Math.sin(dn/2)**2;return 12742*Math.asin(Math.sqrt(h));}
+function demoLugar(l){l=Object.assign({},l);let cod=Object.keys(DZ).find(k=>DZ[k].n.toLowerCase()===String(l.ciudadNombre||'').toLowerCase())||(DZ[l.ciudad]?l.ciudad:'');
+ if(!cod&&l.punto){let d0=40;Object.keys(DZ).forEach(k=>{const d=kmD(l.punto,DZ[k].c);if(d<=d0){d0=d;cod=k;}});}cod=cod||'1701';const c=DZ[cod];let zona=null,est='Sin zonas';
+ if(c.z.length){if(l.punto){let d0=1e9;c.z.forEach(z=>{const d=kmD(l.punto,z[2]);if(d<d0){d0=d;zona={id:z[0],nombre:z[1]};}});est='Calculada';}else est='Por confirmar';}
+ return Object.assign(l,{ciudad:cod,ciudadNombre:c.n,zona,estadoZona:est,lejos:false,texto:est==='Sin zonas'?c.n:zona?c.n+' · Zona '+zona.nombre:c.n+' · zona por confirmar'});}
+function demoHorarios(){const dias=proximosDias().map(d=>{const f=iso(d),hs=horas(f).map(h=>[h,disp(f,h)]);return {fecha:f,inmediata:hs.filter(x=>x[1]==='fija').map(x=>x[0]),red:hs.filter(x=>x[1]==='red').map(x=>x[0])};});
+ const tot=dias.reduce((a,d)=>a+d.inmediata.length+d.red.length,0);return {dias,total:tot,sinHorarios:!tot,red:3};}
+function demoBuscar(t){const n=t.toLowerCase();return [['Av. Amazonas N36-152 y Naciones Unidas','Quito',[-0.1765,-78.4845]],['Av. Mariscal Sucre S12-45 y Ajaví','Quito',[-0.2620,-78.5340]],['Conocoto, calle García Moreno y Montúfar','Quito',[-0.2920,-78.4790]],['Av. Francisco de Orellana, Kennedy Norte','Guayaquil',[-2.1700,-79.8950]],['Av. Cevallos y Montalvo','Ambato',[-1.2420,-78.6280]]]
+ .filter(x=>x[0].toLowerCase().includes(n)||x[1].toLowerCase().includes(n)).map(x=>({texto:x[0],ciudad:x[1],punto:x[2]}));}
+function demoAgendar(s){const antes=S.cita?citaTxt():null;S.sinred=null;
+ if(s.tipo==='fija'){const n=INSP_FIJOS[hash(s.f+s.h)%INSP_FIJOS.length];S.cita={agendadoEn:Date.now(),f:s.f,h:s.h,modo:'fija',insp:{nombre:n,org:'Inspector de Aseguradora del Sur',cred:'AS-INS-0'+(140+hash(n)%40)}};S.etapa='agendada';S.hist.push({t:Date.now(),a:antes?'Cambió la cita':'Agendó la inspección',d:citaTxt()});}
+ else{S.cita={f:s.f,h:s.h,modo:'red',red:3+hash(s.f+s.h)%5,buscarHasta:Date.now()+CFG.busquedaSeg*1000};S.etapa='buscando';S.hist.push({t:Date.now(),a:'Pidió un horario a la red de inspectores',d:citaTxt()});}
+ return null;}
+function reloj(){}
 // ===== Modo prueba: leer y escribir en la base de datos =====
 const TIPO_COMP={'Vehículo':'veh','Ubicación':'rg','Equipo móvil':'em'};
-function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_COMP[r.composicion]||'veh';if(S.tipo!==t){const docs=S.docs;S=Object.assign(nuevoEstado(t),{hist:S.hist});}
- const T=TIPOS[S.tipo];T.caso=String(d.caso.numero);T.cliente=(d.caso.contacto&&d.caso.contacto.nombre)||d.caso.cliente||T.cliente;T.bien=r.descripcion||T.bien;
- const v=d.visita;S.cita=null;S.cxCamino=!!(v&&v.enCamino);S.linea=d.linea||[];
+function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_COMP[r.composicion]||'veh';if(S.tipo!==t){S=Object.assign(nuevoEstado(t),{hist:S.hist,lugar:S.lugar,contacto:S.contacto,sec:S.sec,paso:S.paso});}
+ const T=TIPOS[S.tipo];T.caso=String(d.caso.numero);T.cliente=(d.caso.contacto&&d.caso.contacto.nombre)||d.caso.cliente||T.cliente;T.bien=(d.riesgos||[]).map(x=>x.descripcion).filter(Boolean).join(', ')||T.bien;
+ if(d.contexto){S.ctx=d.contexto;if(d.contexto.minutos)T.dur=d.contexto.minutos;}
+ const v=d.visita,editando=['sitio','dia','conf'].indexOf(S.paso)>=0;S.cita=null;S.cxCamino=!!(v&&v.enCamino);S.linea=d.linea||[];S.sinred=d.sinRed||null;
+ if(v&&v.lugar&&v.lugar.ciudad&&!editando){S.lugar=Object.assign({},v.lugar);if(S.ctx&&S.ctx.fijo&&!S.rgResp)S.rgResp=v.lugar.origen==='Solicitud'?'si':'no';}
+ if(v&&v.direccion&&!editando){if(v.direccion.quien)S.contacto.quien=v.direccion.quien;if(v.direccion.cel)S.contacto.cel=v.direccion.cel;if(!S.lugar.direccion&&v.direccion.direccion)S.lugar.direccion=v.direccion.direccion;}
  if(v&&v.inicio){const ini=new Date(v.inicio),f=iso(ini),h=p2(ini.getHours())+':'+p2(ini.getMinutes());S.cita={f,h,modo:v.origen==='Cliente · red'?'red':'fija',agendadoEn:v.agendadoEn?new Date(v.agendadoEn).getTime():null,modificable:v.modificable};
-  if(d.inspector)S.cita.insp={nombre:d.inspector.nombre,org:d.inspector.organizacion,cred:d.inspector.credencial};
-  if(v.direccion){S.lugar=Object.assign(S.lugar,{dir:v.direccion.direccion||'',ref:v.direccion.referencia||'',quien:v.direccion.quien||'',cel:v.direccion.cel||'',lat:v.direccion.lat||null,lng:v.direccion.lng||null});}}
+  if(d.inspector)S.cita.insp={nombre:d.inspector.nombre,org:d.inspector.organizacion,cred:d.inspector.credencial};}
  const est=d.caso.estado;S.etapa=!v||v.estado==='Por agendar'?'solicitud':v.estado==='Buscando inspector'?'buscando':['En curso'].includes(est)?'realizada':['Pendiente calificación','Pendiente calificación de suscripción','Devuelto al inspector'].includes(est)?'revision':['Inspeccionado','Enviado a emisión','Emitida','No emitida'].includes(est)?'completada':'agendada';
- if(S.etapa==='buscando'&&S.cita){S.cita.red=(d.busqueda&&d.busqueda.consultados)||2;S.cita.buscarHasta=d.busqueda?new Date(d.busqueda.vence).getTime():Date.now()+7200000;}
+ if(S.etapa==='buscando'&&S.cita){S.cita.red=(d.busqueda&&d.busqueda.consultados)||null;S.cita.buscarHasta=d.busqueda&&d.busqueda.vence?new Date(d.busqueda.vence).getTime():null;}
  const pasos=(d.documentos||[]).map(x=>x.paso);S.docs.forEach(x=>{if(pasos.includes(x.id)&&x.st==='pend')x.st='rev';});guardar();}
 let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa,antesCam=!!S.cxCamino;aplicar(d);
  if(!antesCam&&S.cxCamino&&silencioso)toast('Tu inspector va en camino');
+ if(antes==='buscando'&&S.etapa==='solicitud'&&S.sinred){S.paso='estado';S.sec='estado';toast('Ningún inspector tomó tu cita: elige otro horario');}
  if(antes==='buscando'&&S.etapa==='agendada'){S.paso='ok';toast('¡Confirmado! '+(S.cita.insp?S.cita.insp.nombre:'Un inspector')+' hará tu inspección');}pintar();}
  catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){clearTimeout(sondeo);$('#scr').innerHTML='<h1>Este enlace ya no es válido</h1><p class="mut">La aseguradora te envió un enlace nuevo, o este venció. Abre el último mensaje que recibiste; si no lo tienes, llámanos al '+CFG.telTxt+'.</p>';return;}}
  // Observación 10: el portal se actualiza solo mientras el caso avanza (agenda desde la aseguradora, «va en camino», realizada, revisión).
  clearTimeout(sondeo);const cada=S.etapa==='buscando'?10000:['solicitud','agendada','realizada','revision'].includes(S.etapa)?20000:0;if(cada)sondeo=setTimeout(()=>cargar(true),cada);}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&MODO==='prueba')cargar(true);});
-function evento(accion,detalle){if(MODO==='prueba')rpc('portal_evento',{p_token:TOKEN,p_accion:accion,p_detalle:detalle||null,p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:uid()}).catch(()=>{});}
-function confirmar(){const l=S.lugar,e={};if(l.dir.trim().length<8)e.dir='Escribe la dirección completa';if(l.quien.trim().length<3)e.quien='Indica quién recibe al inspector';if(!/^09\d{8}$/.test(l.cel.replace(/\s/g,'')))e.cel='Celular de 10 dígitos que empiece con 09';
- if(Object.keys(e).length){S.errs=e;pintar();toast('Revisa los datos marcados');return;}
- const ap=S.apartado;if(ap.modo==='fija'&&Date.now()>ap.hasta){S.apartado=null;guardar();toast('El horario se liberó: elige de nuevo');ir('agenda','dia');return;}
- if(MODO==='prueba'){const ini=aFecha(ap.f,ap.h);toast(ap.modo==='fija'?'Confirmando tu cita…':'Buscando un inspector…');
-  rpc('portal_agendar',{p_token:TOKEN,p_inicio:ini.toISOString(),p_minutos:TP().dur,p_modo:ap.modo,p_direccion:{direccion:l.dir,referencia:l.ref,quien:l.quien,cel:l.cel,lat:l.lat,lng:l.lng}})
-   .then(d=>{S.apartado=null;S.errs=null;S.cambiando=false;clearInterval(tmr);aplicar(d);S.paso=S.etapa==='buscando'?'buscando':'ok';S.sec='agenda';pintar();cargar(true);})
-   .catch(e=>toast('No se pudo agendar: '+(e.message||e)));return;}
- const antes=S.cita?citaTxt():null;S.apartado=null;S.errs=null;S.cambiando=false;clearInterval(tmr);
- if(ap.modo==='fija'){const n=INSP_FIJOS[hash(ap.f+ap.h)%INSP_FIJOS.length];S.cita={agendadoEn:Date.now(),f:ap.f,h:ap.h,modo:'fija',insp:{nombre:n,org:'Inspector de Aseguradora del Sur',cred:'AS-INS-0'+(140+hash(n)%40)}};S.etapa='agendada';S.hist.push({t:Date.now(),a:antes?'Cambió la cita':'Agendó la inspección',d:citaTxt()});ir('agenda','ok');}
- else{S.cita={f:ap.f,h:ap.h,modo:'red',red:3+hash(ap.f+ap.h)%5,buscarHasta:Date.now()+CFG.busquedaSeg*1000};S.etapa='buscando';S.hist.push({t:Date.now(),a:'Pidió un horario a la red de inspectores',d:citaTxt()});ir('agenda','buscando');}
- vigilar();}
+function evento(accion,detalle){if(MODO==='prueba')rpc('portal_evento',{p_token:TOKEN,p_accion:accion,p_detalle:detalle||null,p_lat:latLug(),p_lng:lngLug(),p_id_cliente:uid()}).catch(()=>{});}
+function confirmar(){const c=S.contacto,e={};if(String(c.quien||'').trim().length<3)e.quien='Indica quién recibe al inspector';if(!/^09\d{8}$/.test(String(c.cel||'').replace(/\s/g,'')))e.cel='Celular de 10 dígitos que empiece con 09';
+ if(Object.keys(e).length){S.errs=e;pintar();toast('Revisa los datos marcados');return;}S.errs=null;
+ const s=S.sel,b=$('#bConf');if(b){b.disabled=true;b.textContent=s.tipo==='fija'?'Confirmando tu cita…':'Enviando tu pedido…';}
+ api.agendar(s,S.lugar,{quien:c.quien.trim(),cel:c.cel.replace(/\s/g,'')}).then(d=>{S.cambiando=false;S.sel=null;S.Hkey=null;S.paso='estado';if(d)aplicar(d);S.paso=S.etapa==='buscando'?'buscando':'ok';S.sec='agenda';guardar();pintar();if(MODO==='prueba')cargar(true);else vigilar();})
+  .catch(err=>{const m=err.message||String(err);toast(m);if(/disponible|elige otro|red tiene/i.test(m)){S.Hkey=null;S.sel=null;ir('agenda','dia');}else pintar();});}
 // Simulación de la red (en SIRIUS: la cita se ofrece a los inspectores de la red de la zona y el primero que la toma queda asignado).
 function vigilar(){clearTimeout(busc);if(MODO==='prueba')return;if(S.etapa!=='buscando'||!S.cita)return;const r=S.cita.buscarHasta-Date.now();busc=setTimeout(()=>aceptaRed(),Math.max(0,r));}
 function aceptaRed(){if(S.etapa!=='buscando')return;const r=RED[hash(S.cita.f+S.cita.h)%RED.length];S.cita.insp={nombre:r[0],org:r[1],cred:r[2],nota:r[3]};S.cita.modo='red-confirmada';S.etapa='agendada';S.hist.push({t:Date.now(),a:'Un inspector de la red aceptó la cita',d:r[0]});guardar();if(S.paso==='buscando'||S.paso==='estado'||S.paso==='cita')S.paso='ok';pintar();toast('¡Confirmado! '+r[0]+' hará tu inspección');}
 function nadieRed(){if(S.etapa!=='buscando')return;S.sinred=citaTxt();S.cita=null;S.etapa='solicitud';S.hist.push({t:Date.now(),a:'Ningún inspector de la red tomó la cita',d:S.sinred});guardar();ir('agenda','sinred');}
 function cancelar(){if(!confirm('¿Cancelar la cita? Podrás agendar otra cuando quieras.'))return;if(MODO==='prueba'){rpc('portal_cancelar',{p_token:TOKEN,p_motivo:'Cancelada desde el portal'}).then(d=>{aplicar(d);S.camino=false;toast('Cita cancelada');ir('estado','estado');}).catch(e=>toast(e.message||String(e)));return;}S.hist.push({t:Date.now(),a:'Canceló la cita',d:citaTxt()});S.cita=null;S.etapa='solicitud';S.camino=false;clearTimeout(busc);toast('Cita cancelada');ir('estado','estado');}
 function ics(){if(!S.cita)return;const a=aFecha(S.cita.f,S.cita.h),b=new Date(a.getTime()+TP().dur*60000),f=d=>d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'T'+p2(d.getHours())+p2(d.getMinutes())+'00';
- const txt=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Aseguradora del Sur//Inspeccion//ES','BEGIN:VEVENT','UID:'+TP().caso+'-'+S.cita.f+'@asur.ec','DTSTAMP:'+f(new Date()),'DTSTART:'+f(a),'DTEND:'+f(b),'SUMMARY:Inspección · '+TP().bien,'LOCATION:'+(S.lugar.dir||'').replace(/[,;]/g,' '),'DESCRIPTION:Aseguradora del Sur · caso '+TP().caso+(S.cita.insp?' · inspector '+S.cita.insp.nombre:''),'BEGIN:VALARM','TRIGGER:-PT2H','ACTION:DISPLAY','DESCRIPTION:Inspección en 2 horas','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
+ const txt=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Aseguradora del Sur//Inspeccion//ES','BEGIN:VEVENT','UID:'+TP().caso+'-'+S.cita.f+'@asur.ec','DTSTAMP:'+f(new Date()),'DTSTART:'+f(a),'DTEND:'+f(b),'SUMMARY:Inspección · '+TP().bien,'LOCATION:'+(S.lugar.direccion||'').replace(/[,;]/g,' '),'DESCRIPTION:Aseguradora del Sur · caso '+TP().caso+(S.cita.insp?' · inspector '+S.cita.insp.nombre:''),'BEGIN:VALARM','TRIGGER:-PT2H','ACTION:DISPLAY','DESCRIPTION:Inspección en 2 horas','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
  const u=URL.createObjectURL(new Blob([txt],{type:'text/calendar'})),l=document.createElement('a');l.href=u;l.download='inspeccion-'+TP().caso+'.ics';document.body.appendChild(l);l.click();l.remove();}
 let docI=null;
 // ===== Cámara guiada de documentos (mismo comportamiento que la autoinspección) =====
@@ -243,7 +364,7 @@ let ocrW=null;async function workerOcr(){if(!window.Tesseract)await new Promise(
 function prep(c){const k=Math.max(1,1400/c.width),o=document.createElement('canvas');o.width=Math.round(c.width*k);o.height=Math.round(c.height*k);const x=o.getContext('2d');x.drawImage(c,0,0,o.width,o.height);const im=x.getImageData(0,0,o.width,o.height),D=im.data;let s=0;for(let i=0;i<D.length;i+=4)s+=.299*D[i]+.587*D[i+1]+.114*D[i+2];const th=s/(D.length/4)*.92;for(let i=0;i<D.length;i+=4){const v=(.299*D[i]+.587*D[i+1]+.114*D[i+2])>th?255:0;D[i]=D[i+1]=D[i+2]=v;}x.putImageData(im,0,0);return o;}
 async function subirDoc(i,c,val){const d=S.docs[i],idc=uid(),ruta='portal/'+TOKEN+'/'+d.id+'-'+Date.now()+'.jpg';
  try{const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.85));const {error}=await SB.storage.from('evidencias').upload(ruta,blob,{contentType:'image/jpeg',upsert:false});if(error)throw error;
-  await rpc('portal_evidencia',{p_token:TOKEN,p_paso:d.id,p_ruta:ruta,p_validacion:val,p_lecturas:{},p_lat:S.lugar.lat,p_lng:S.lugar.lng,p_id_cliente:idc});toast('Documento recibido en SIRIUS');}
+  await rpc('portal_evidencia',{p_token:TOKEN,p_paso:d.id,p_ruta:ruta,p_validacion:val,p_lecturas:{},p_lat:latLug(),p_lng:lngLug(),p_id_cliente:idc});toast('Documento recibido en SIRIUS');}
  catch(e){toast('No se pudo subir el documento: '+(e.message||e));d.st='pend';guardar();pintar();}}
 async function extraer(i,c){const d=S.docs[i];try{const w=await workerOcr();const r=await w.recognize(prep(c));const t=(r.data.text||'').toUpperCase().replace(/[|]/g,' '),conf=Math.round(r.data.confidence||0),T=t.replace(/\s+/g,' ');
  const fechas=(T.match(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.](19|20)\d{2}\b/g)||[]);const v={};
@@ -270,10 +391,9 @@ function cambiarTipo(k){if(k===S.tipo)return;if(!confirm('¿Cambiar a '+TIPOS[k]
 function avanzar(e){S.etapa=e;S.camino=false;guardar();pintar();}
 function revisarDocs(ok){const d=S.docs.find(x=>x.st==='rev');if(!d)return;if(ok)S.docs.forEach(x=>{if(x.st==='rev')x.st='ok';});else{d.st='rech';d.motivo='La foto está borrosa: vuelve a tomarla con buena luz y que se lea todo.';}guardar();pintar();toast(ok?'Documentos aceptados':'Un documento necesita una foto nueva');}
 // ===== Pintar =====
-function pintar(){$('#hcaso').innerHTML='Caso '+TP().caso+'<br>'+esc(TP().nombre);$('#scr').innerHTML=(V[S.paso]||V.estado)();document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.n===S.sec));const n=pend(),nb=$('#nb');nb.textContent=n;nb.style.display=n?'':'none';reloj();}
-document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{const n=b.dataset.n;if(n==='agenda'){S.cambiando=false;ir('agenda',S.cita?'cita':(S.apartado?'lugar':'dia'));}else ir(n,n==='docs'?'docs':'estado');});
+function pintar(){$('#hcaso').innerHTML='Caso '+TP().caso+'<br>'+esc(TP().nombre);$('#scr').innerHTML=(V[S.paso]||V.estado)();document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.n===S.sec));const n=pend(),nb=$('#nb');nb.textContent=n;nb.style.display=n?'':'none';if(S.paso==='sitio'){montarMapa();pintarSug();}else if(MAPA){try{MAPA.remove();}catch(e){}MAPA=null;PIN=null;}}
+document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{const n=b.dataset.n;if(n==='agenda'){S.cambiando=false;ir('agenda',S.cita?'cita':'sitio');}else ir(n,n==='docs'?'docs':'estado');});
 vigilar();
-if(S.apartado&&Date.now()>S.apartado.hasta)S.apartado=null;
 pintar();
 if(MODO==='prueba'){cargar();if(!sessionStorage.getItem('abierto-'+TOKEN)){sessionStorage.setItem('abierto-'+TOKEN,'1');evento('Abrió el enlace',/iPhone/.test(navigator.userAgent)?'iPhone':/Android/.test(navigator.userAgent)?'Android':'Navegador');}}
 </script></body></html>
