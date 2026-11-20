@@ -130,7 +130,7 @@ estado(){const e=PASOS[S.etapa],hoyVisita=S.cita&&S.cita.f===iso(new Date())&&S.
  return '<h1>Hola, '+esc(TP().cliente.split(' ')[0])+'</h1><p class="mut">Tu inspección de '+esc(TP().nombre)+' · '+esc(TP().bien)+'</p>'+accion+'<ul class="tl">'+T.map((t,i)=>{const hecho=i<e||(i===e&&['solicitud','agendada','completada'].includes(S.etapa)),cur=!hecho&&T.findIndex((_,j)=>!(j<e||(j===e&&['solicitud','agendada','completada'].includes(S.etapa))))===i;return '<li><span class="dot '+(hecho?'ok':cur?'cur':'')+'"'+(hecho?' aria-label="Completado"':cur?' aria-label="Siguiente"':'')+'>'+(hecho?'✓':i+1)+'</span><div><b>'+t[0]+'</b><small>'+esc(t[1])+'</small></div></li>';}).join('')+'</ul>'+
  (pend()?'<div class="card warn"><b>Tienes '+pend()+' documento'+(pend()>1?'s':'')+' pendiente'+(pend()>1?'s':'')+'</b><button class="btn btn2" onclick="ir(\'docs\',\'docs\')">Ver documentos</button></div>':'')+
  '<p class="mut sm">¿Dudas? Llámanos al <a href="tel:'+CFG.tel+'">'+CFG.telTxt+'</a>.</p>'+prueba();},
-sitio(){const C=ctx(),fijo=C.fijo,sol=C.solicitud||{};
+sitio(){if(citaBloqueada())return vistaBloqueada();const C=ctx(),fijo=C.fijo,sol=C.solicitud||{};
  let h='<button class="btn3" onclick="'+(S.cambiando&&S.cita?'S.cambiando=false;ir(\'agenda\',\'cita\')':'ir(\'estado\',\'estado\')')+'">‹ Volver</button>'+pasoTit(1,'Lugar')+'<h1>'+esc(TP().preg)+'</h1><p class="mut">'+(fijo?'Los horarios dependen de los inspectores que atienden ese lugar.':'Primero el lugar: los horarios dependen de los inspectores que atienden esa zona.')+'</p>';
  if(fijo){
   h+='<div class="card"><b>'+esc(sol.direccion||'Dirección de la solicitud')+'</b><p class="mut sm" style="margin:2px 0 0">'+esc(sol.texto||'')+'</p><div id="mapa" class="mapa" role="img" aria-label="Mapa con la dirección de la solicitud"></div></div>'+
@@ -144,10 +144,11 @@ sitio(){const C=ctx(),fijo=C.fijo,sol=C.solicitud||{};
  }
  const f=faltaLugar();
  return h+'<button class="btn" id="bSig" '+(f?'disabled':'')+' onclick="irHorario()">Siguiente: Horario</button><p class="mut sm" style="text-align:center;margin:6px 0 0" id="faltaL">'+esc(f)+'</p>';},
-dia(){if(S.etapa!=='solicitud'&&!S.cambiando)return V.cita();if(faltaLugar())return V.sitio();
+dia(){if(citaBloqueada())return vistaBloqueada();if(S.etapa!=='solicitud'&&!S.cambiando)return V.cita();if(faltaLugar())return V.sitio();
  const lt=esc(S.lugar.texto||'tu zona'),top='<button class="btn3" onclick="ir(\'agenda\',\'sitio\')">‹ Cambiar el lugar</button>'+pasoTit(2,'Horario')+'<h1>'+(S.cambiando?'Cambiar tu cita':'Horarios para '+lt)+'</h1>'+(S.cambiando?'<p class="mut">'+lt+'</p>':'');
  const H=S.H&&S.Hkey===claveLugar()?S.H:null;
  if(!H){cargarHorarios();return top+'<p class="mut" role="status">Buscando los horarios de los inspectores que atienden ese lugar…</p>';}
+ if(H.bloqueada){S.bloqueoMsg=H.mensaje;return vistaBloqueada();}
  if(H.error)return top+'<div class="aviso warn" role="alert"><b>No pudimos cargar los horarios</b><span>'+esc(H.error)+'</span></div><button class="btn btn2" onclick="S.Hkey=null;pintar()">Intentar de nuevo</button>';
  if(H.sinHorarios){pedirContacto();return top+'<div class="aviso warn" role="status" id="sinHorarios"><b>No hay horarios inmediatos para tu zona: te contactará un coordinador</b><span>Ningún inspector atiende '+lt+' en los próximos días.</span></div>'+
   (S.pedido===claveLugar()?'<p class="mut sm" role="status">Registramos tu pedido. Si prefieres, llámanos.</p>':'<p class="mut sm" role="status">Registrando tu pedido…</p>')+'<a class="btn btn2" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a><button class="btn btn3" onclick="ir(\'agenda\',\'sitio\')">Elegir otro lugar</button>';}
@@ -283,11 +284,15 @@ function demoAgendar(s){const antes=S.cita?citaTxt():null;S.sinred=null;
  else{S.cita={f:s.f,h:s.h,modo:'red',red:3+hash(s.f+s.h)%5,buscarHasta:Date.now()+CFG.busquedaSeg*1000};S.etapa='buscando';S.hist.push({t:Date.now(),a:'Pidió un horario a la red de inspectores',d:citaTxt()});}
  return null;}
 function reloj(){}
+// SQL 71: la cita actual ya no se puede cambiar (menos de N horas hábiles, configurable): se dice antes de mostrar horarios.
+function citaBloqueada(){return !!(S.cambiando&&S.cita&&S.cita.modificable===false);}
+function vistaBloqueada(){const m=S.bloqueoMsg||('Tu cita actual ('+citaTxt()+') ya no se puede cambiar desde aquí. Llama a la aseguradora.');
+ return '<button class="btn3" onclick="S.cambiando=false;ir(\'agenda\',\'cita\')">‹ Volver</button><h1>Tu cita ya no se puede cambiar</h1><div class="aviso warn" role="alert"><b>'+esc(m)+'</b></div><a class="btn" href="tel:'+CFG.tel+'">Llamar a la aseguradora</a><button class="btn btn3" onclick="S.cambiando=false;ir(\'agenda\',\'cita\')">Volver a mi cita</button>';}
 // ===== Modo prueba: leer y escribir en la base de datos =====
 const TIPO_COMP={'Vehículo':'veh','Ubicación':'rg','Equipo móvil':'em'};
 function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_COMP[r.composicion]||'veh';if(S.tipo!==t){S=Object.assign(nuevoEstado(t),{hist:S.hist,lugar:S.lugar,contacto:S.contacto,sec:S.sec,paso:S.paso});}
  const T=TIPOS[S.tipo];T.caso=String(d.caso.numero);T.cliente=(d.caso.contacto&&d.caso.contacto.nombre)||d.caso.cliente||T.cliente;T.bien=(d.riesgos||[]).map(x=>x.descripcion).filter(Boolean).join(', ')||T.bien;
- if(d.contexto){S.ctx=d.contexto;if(d.contexto.minutos)T.dur=d.contexto.minutos;}
+ if(d.contexto){S.ctx=d.contexto;if(d.contexto.minutos)T.dur=d.contexto.minutos;if(d.contexto.cambioHorasHabiles!=null)CFG.cambioHorasHabiles=d.contexto.cambioHorasHabiles;}
  const v=d.visita,editando=['sitio','dia','conf'].indexOf(S.paso)>=0;S.cita=null;S.cxCamino=!!(v&&v.enCamino);S.linea=d.linea||[];S.sinred=d.sinRed||null;
  if(v&&v.lugar&&v.lugar.ciudad&&!editando){S.lugar=Object.assign({},v.lugar);if(S.ctx&&S.ctx.fijo&&!S.rgResp)S.rgResp=v.lugar.origen==='Solicitud'?'si':'no';}
  if(v&&v.direccion&&!editando){if(v.direccion.quien)S.contacto.quien=v.direccion.quien;if(v.direccion.cel)S.contacto.cel=v.direccion.cel;if(!S.lugar.direccion&&v.direccion.direccion)S.lugar.direccion=v.direccion.direccion;}
@@ -309,7 +314,7 @@ function confirmar(){const c=S.contacto,e={};if(String(c.quien||'').trim().lengt
  if(Object.keys(e).length){S.errs=e;pintar();toast('Revisa los datos marcados');return;}S.errs=null;
  const s=S.sel,b=$('#bConf');if(b){b.disabled=true;b.textContent=s.tipo==='fija'?'Confirmando tu cita…':'Enviando tu pedido…';}
  api.agendar(s,S.lugar,{quien:c.quien.trim(),cel:c.cel.replace(/\s/g,'')}).then(d=>{S.cambiando=false;S.sel=null;S.Hkey=null;S.paso='estado';if(d)aplicar(d);S.paso=S.etapa==='buscando'?'buscando':'ok';S.sec='agenda';guardar();pintar();if(MODO==='prueba')cargar(true);else vigilar();})
-  .catch(err=>{const m=err.message||String(err);toast(m);if(/disponible|elige otro|red tiene/i.test(m)){S.Hkey=null;S.sel=null;ir('agenda','dia');}else pintar();});}
+  .catch(err=>{const m=err.message||String(err);if(/ya no se puede cambiar/i.test(m)){S.bloqueoMsg=m;if(S.cita)S.cita.modificable=false;S.sel=null;ir('agenda','dia');return;}toast(m);if(/disponible|elige otro|red tiene/i.test(m)){S.Hkey=null;S.sel=null;ir('agenda','dia');}else pintar();});}
 // Simulación de la red (en SIRIUS: la cita se ofrece a los inspectores de la red de la zona y el primero que la toma queda asignado).
 function vigilar(){clearTimeout(busc);if(MODO==='prueba')return;if(S.etapa!=='buscando'||!S.cita)return;const r=S.cita.buscarHasta-Date.now();busc=setTimeout(()=>aceptaRed(),Math.max(0,r));}
 function aceptaRed(){if(S.etapa!=='buscando')return;const r=RED[hash(S.cita.f+S.cita.h)%RED.length];S.cita.insp={nombre:r[0],org:r[1],cred:r[2],nota:r[3]};S.cita.modo='red-confirmada';S.etapa='agendada';S.hist.push({t:Date.now(),a:'Un inspector de la red aceptó la cita',d:r[0]});guardar();if(S.paso==='buscando'||S.paso==='estado'||S.paso==='cita')S.paso='ok';pintar();toast('¡Confirmado! '+r[0]+' hará tu inspección');}
