@@ -301,11 +301,11 @@ function aplicar(d){if(!d||d.error)return;const r=(d.riesgos||[])[0]||{},t=TIPO_
  const est=d.caso.estado;S.etapa=!v||v.estado==='Por agendar'?'solicitud':v.estado==='Buscando inspector'?'buscando':['En curso'].includes(est)?'realizada':['Pendiente calificación','Pendiente calificación de suscripción','Devuelto al inspector'].includes(est)?'revision':['Inspeccionado','Enviado a emisión','Emitida','No emitida'].includes(est)?'completada':'agendada';
  if(S.etapa==='buscando'&&S.cita){S.cita.red=(d.busqueda&&d.busqueda.consultados)||null;S.cita.buscarHasta=d.busqueda&&d.busqueda.vence?new Date(d.busqueda.vence).getTime():null;}
  const pasos=(d.documentos||[]).map(x=>x.paso);S.docs.forEach(x=>{if(pasos.includes(x.id)&&x.st==='pend')x.st='rev';});guardar();}
-let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});const antes=S.etapa,antesCam=!!S.cxCamino;aplicar(d);
+let sondeo=null;async function cargar(silencioso){if(MODO!=='prueba')return;try{const d=await rpc('portal_obtener',{p_token:TOKEN});CARGADO=true;const antes=S.etapa,antesCam=!!S.cxCamino;aplicar(d);
  if(!antesCam&&S.cxCamino&&silencioso)toast('Tu inspector va en camino');
  if(antes==='buscando'&&S.etapa==='solicitud'&&S.sinred){S.paso='estado';S.sec='estado';toast('Ningún inspector tomó tu cita: elige otro horario');}
  if(antes==='buscando'&&S.etapa==='agendada'){S.paso='ok';toast('¡Confirmado! '+(S.cita.insp?S.cita.insp.nombre:'Un inspector')+' hará tu inspección');}pintar();}
- catch(e){if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){clearTimeout(sondeo);$('#scr').innerHTML='<h1>Este enlace ya no es válido</h1><p class="mut">La aseguradora te envió un enlace nuevo, o este venció. Abre el último mensaje que recibiste; si no lo tienes, llámanos al '+CFG.telTxt+'.</p>';return;}}
+ catch(e){CARGADO=true;if(!silencioso)toast('No pudimos leer tu caso: '+(e.message||e));if(String(e.message||'').includes('Enlace')){clearTimeout(sondeo);$('#scr').innerHTML='<h1>Este enlace ya no es válido</h1><p class="mut">La aseguradora te envió un enlace nuevo, o este venció. Abre el último mensaje que recibiste; si no lo tienes, llámanos al '+CFG.telTxt+'.</p>';return;}}
  // Observación 10: el portal se actualiza solo mientras el caso avanza (agenda desde la aseguradora, «va en camino», realizada, revisión).
  clearTimeout(sondeo);const cada=S.etapa==='buscando'?10000:['solicitud','agendada','realizada','revision'].includes(S.etapa)?20000:0;if(cada)sondeo=setTimeout(()=>cargar(true),cada);}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&MODO==='prueba')cargar(true);});
@@ -403,7 +403,8 @@ function cambiarTipo(k){if(k===S.tipo)return;if(!confirm('¿Cambiar a '+TIPOS[k]
 function avanzar(e){S.etapa=e;S.camino=false;guardar();pintar();}
 function revisarDocs(ok){const d=S.docs.find(x=>x.st==='rev');if(!d)return;if(ok)S.docs.forEach(x=>{if(x.st==='rev')x.st='ok';});else{d.st='rech';d.motivo='La foto está borrosa: vuelve a tomarla con buena luz y que se lea todo.';}guardar();pintar();toast(ok?'Documentos aceptados':'Un documento necesita una foto nueva');}
 // ===== Pintar =====
-function pintar(){$('#hcaso').innerHTML='Caso '+TP().caso+'<br>'+esc(TP().nombre);$('#scr').innerHTML=(V[S.paso]||V.estado)();document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.n===S.sec));const n=pend(),nb=$('#nb');nb.textContent=n;nb.style.display=n?'':'none';if(S.paso==='sitio'){montarMapa();pintarSug();}else if(MAPA){try{MAPA.remove();}catch(e){}MAPA=null;PIN=null;}}
+let CARGADO=MODO!=='prueba';
+function pintar(){if(!CARGADO){$('#hcaso').innerHTML='';$('#scr').innerHTML='<p class="mut" role="status" style="text-align:center;margin:56px 0">Cargando tu inspección…</p>';return;}$('#hcaso').innerHTML='Caso '+TP().caso+'<br>'+esc(TP().nombre);$('#scr').innerHTML=(V[S.paso]||V.estado)();document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.n===S.sec));const n=pend(),nb=$('#nb');nb.textContent=n;nb.style.display=n?'':'none';if(S.paso==='sitio'){montarMapa();pintarSug();}else if(MAPA){try{MAPA.remove();}catch(e){}MAPA=null;PIN=null;}}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{const n=b.dataset.n;if(n==='agenda'){S.cambiando=false;ir('agenda',S.cita?'cita':'sitio');}else ir(n,n==='docs'?'docs':'estado');});
 vigilar();
 pintar();
